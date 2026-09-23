@@ -1,0 +1,10 @@
+body { font-family: sans-serif; margin: 0; }
+header { display: flex; gap: 1rem; padding: 0.5rem 1rem; background: #111; color: #fff; align-items: center; }
+header a { color: #9cf; }
+.box { max-width: 22rem; margin: 3rem auto; }
+label { display: block; margin: 0.5rem 0; }
+input, textarea, select, button { margin: 0.25rem 0; }
+textarea { width: 100%; min-height: 4rem; }
+section { padding: 1rem; }
+.err { color: #b00; }
+button { margin-right: 0.35rem; }

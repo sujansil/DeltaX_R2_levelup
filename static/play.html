@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Level Up — Play</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header>
+    <strong id="teamName">Team</strong>
+    <span id="score"></span>
+    <span id="roleBadge"></span>
+    <a href="/" onclick="clearAuth()">logout</a>
+  </header>
+  <section>
+    <p>Phase: <b id="phase"></b> | Q <span id="qidx">-</span> | Topic: <span id="topic"></span></p>
+    <p>Timer: <b id="timer"></b> | Potential if correct: <b id="potential"></b></p>
+    <p id="ks"></p>
+    <div id="prompt"></div>
+    <div id="answerBox"></div>
+    <p>
+      <button id="lockBtn" disabled>Lock answer</button>
+    </p>
+    <p>
+      <button id="claimBtn">Become controller</button>
+      <button id="bountyBtn" disabled>Bounty (−2000)</button>
+      <button id="freezeBtn" disabled>Freeze (−750)</button>
+      <button id="peekBtn" disabled>Peek (−750)</button>
+    </p>
+    <p>
+      Swap target
+      <select id="swapTarget"></select>
+      <button id="swapBtn" disabled>Swap (once / round)</button>
+    </p>
+    <pre id="hint"></pre>
+    <pre id="me"></pre>
+    <h3>Leaderboard</h3>
+    <ol id="board"></ol>
+    <p id="notice" class="err"></p>
+  </section>
+  <script src="/static/common.js"></script>
+  <script src="/static/play.js"></script>
+</body>
+</html>

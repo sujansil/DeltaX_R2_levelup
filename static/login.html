@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Level Up — Login</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <main class="box">
+    <h1>Level Up Round 2</h1>
+    <form id="f">
+      <label>Username <input name="username" required /></label>
+      <label>Password <input name="password" type="password" required /></label>
+      <button type="submit">Log in</button>
+      <p id="err" class="err"></p>
+    </form>
+  </main>
+  <script src="/static/common.js"></script>
+  <script>
+    document.getElementById("f").onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const data = await api("/api/v1/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ username: fd.get("username"), password: fd.get("password") }),
+        });
+        saveAuth(data);
+        location.href = data.role === "admin" ? "/admin" : "/play";
+      } catch (err) {
+        document.getElementById("err").textContent = err.message;
+      }
+    };
+  </script>
+</body>
+</html>

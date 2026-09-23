@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Level Up — Admin</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header>
+    <strong>Admin</strong>
+    <a href="/" onclick="clearAuth()">logout</a>
+  </header>
+  <section>
+    <h2>Round control</h2>
+    <p>Phase: <b id="phase"></b></p>
+    <label>Question
+      <select id="qselect"></select>
+    </label>
+    <button id="showTopic">Show topic</button>
+    <button id="startQ">Start question</button>
+    <button id="closeQ">Close / grade</button>
+    <h3>Create team</h3>
+    <form id="teamForm">
+      <input name="name" placeholder="Team name" required />
+      <input name="username" placeholder="login" required />
+      <input name="password" placeholder="password" required />
+      <input name="score" type="number" placeholder="starting score" />
+      <button>Create team</button>
+    </form>
+    <h3>Create question</h3>
+    <form id="qForm">
+      <input name="index" type="number" placeholder="index" required />
+      <input name="topic" placeholder="topic" required />
+      <input name="qtype" placeholder="mcq_single|mcq_multi|numeric|text" required />
+      <textarea name="prompt" placeholder="prompt" required></textarea>
+      <textarea name="options" placeholder='options JSON e.g. [{"id":"a","text":"..."}] or empty'></textarea>
+      <textarea name="answer_key" placeholder='answer_key JSON' required></textarea>
+      <textarea name="hint" placeholder="peek hint"></textarea>
+      <button>Save question</button>
+    </form>
+    <h3>Live matrix (private)</h3>
+    <pre id="matrix"></pre>
+    <h3>Leaderboard</h3>
+    <ol id="board"></ol>
+    <h3>Audit (latest)</h3>
+    <pre id="audit"></pre>
+    <p id="err" class="err"></p>
+  </section>
+  <script src="/static/common.js"></script>
+  <script src="/static/admin.js"></script>
+</body>
+</html>
