@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from datetime import timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.clock import Clock, SystemClock
 from app.config import get_settings
 from app.models import AuditEvent, Question, RoundState, SwapEvent, Team, TeamQuestion, User
+from app.redisutil import release_controller
 from app.scoring import (
     BOUNTY_COST,
     FREEZE_BONUS_MS,
@@ -68,7 +70,9 @@ async def audit(
 
 
 def _elapsed_ms(started, now) -> int:
-    return max(0, int((now - started).total_seconds() * 1000))
+    started_utc = _normalize_utc(started)
+    now_utc = _normalize_utc(now)
+    return max(0, int((now_utc - started_utc).total_seconds() * 1000))
 
 
 async def _team_for_update(session: AsyncSession, team_id: UUID) -> Team:
@@ -236,6 +240,34 @@ async def close_question(session: AsyncSession, actor: str, clock: Clock | None 
     return rnd
 
 
+async def restart_round(session: AsyncSession, actor: str, clock: Clock | None = None) -> RoundState:
+    clock = clock or SystemClock()
+    rnd = await get_round(session, for_update=True)
+    settings = get_settings()
+
+    await session.execute(delete(TeamQuestion))
+    await session.execute(update(Team).values(score=settings.initial_team_score, swap_available=True, version=Team.version + 1))
+
+    rnd.phase = "idle"
+    rnd.current_question_id = None
+    rnd.topic_shown_at = None
+    rnd.live_started_at = None
+    rnd.closed_at = None
+    rnd.reveal_cards = False
+    rnd.version += 1
+
+    teams = (await session.execute(select(Team))).scalars().all()
+    for team in teams:
+        try:
+            await release_controller(str(team.id), force=True)
+        except Exception:
+            pass
+
+    await audit(session, actor=actor, kind="restart_round", payload={"initial_team_score": settings.initial_team_score})
+    await session.flush()
+    return rnd
+
+
 async def activate_bounty(session: AsyncSession, team_id: UUID, actor: str, clock: Clock | None = None) -> TeamQuestion:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
@@ -259,8 +291,18 @@ async def activate_bounty(session: AsyncSession, team_id: UUID, actor: str, cloc
     return row
 
 
+def _normalize_utc(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _still_time(row: TeamQuestion, now) -> None:
-    if row.deadline_at is None or now >= row.deadline_at:
+    deadline_at = _normalize_utc(row.deadline_at)
+    now_utc = _normalize_utc(now)
+    if deadline_at is None or now_utc >= deadline_at:
         raise EngineError("time_up", "Team timer has ended")
 
 
@@ -461,18 +503,39 @@ async def override_grade(
     return row
 
 
+async def try_autostart(session: AsyncSession, clock: Clock | None = None) -> bool:
+    clock = clock or SystemClock()
+    rnd = await get_round(session)
+    if rnd.phase != "topic" or rnd.current_question_id is None or rnd.topic_shown_at is None:
+        return False
+    if _elapsed_ms(rnd.topic_shown_at, clock.now()) < get_settings().topic_duration_sec * 1000:
+        return False
+    try:
+        from app.redisutil import acquire_lock
+
+        if not await acquire_lock("auto_start_question", ttl_sec=5):
+            return False
+    except Exception:
+        pass
+    await start_question(session, actor="system:autostart", clock=clock)
+    return True
+
+
 async def try_autoclose(session: AsyncSession, clock: Clock | None = None) -> bool:
     clock = clock or SystemClock()
     rnd = await get_round(session)
     if rnd.phase != "live" or rnd.live_started_at is None:
         return False
-    max_ms = QUESTION_MS + FREEZE_BONUS_MS
+    max_ms = QUESTION_MS
     if _elapsed_ms(rnd.live_started_at, clock.now()) < max_ms:
         return False
-    from app.redisutil import acquire_lock
+    try:
+        from app.redisutil import acquire_lock
 
-    if not await acquire_lock("close_question", ttl_sec=10):
-        return False
+        if not await acquire_lock("close_question", ttl_sec=10):
+            return False
+    except Exception:
+        pass
     await close_question(session, actor="system:autoclose", clock=clock)
     return True
 

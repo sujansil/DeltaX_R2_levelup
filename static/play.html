@@ -332,17 +332,9 @@
       const team = state?.team || {};
       restoreLockedAnswerState(q, me);
 
-      if (state.phase === "live") {
+      if (state.phase === "topic" || state.phase === "live") {
         renderAnswerOptions(q, me);
         syncLiveTimer(state);
-
-        const submitBtn = document.getElementById("submit-btn");
-        submitBtn.disabled = !state.i_am_controller || me.locked || !canSubmitCurrentQuestion(q);
-        submitBtn.textContent = me.locked ? "Locked" : "Lock answer";
-        submitBtn.innerHTML = me.locked
-          ? "Locked"
-          : 'Lock answer <i data-lucide="arrow-right" class="size-4"></i>';
-        lucide.createIcons();
       } else {
         syncLiveTimer(null);
       }
@@ -414,9 +406,6 @@
       }
 
       if (state.phase === "live") {
-        renderAnswerOptions(q, me);
-        syncLiveTimer(state);
-
         const submitBtn = document.getElementById("submit-btn");
         submitBtn.disabled = !state.i_am_controller || me.locked || !canSubmitCurrentQuestion(q);
         submitBtn.textContent = me.locked ? "Locked" : "Lock answer";
@@ -424,8 +413,6 @@
           ? "Locked"
           : 'Lock answer <i data-lucide="arrow-right" class="size-4"></i>';
         lucide.createIcons();
-      } else {
-        syncLiveTimer(null);
       }
     }
 
@@ -540,10 +527,15 @@
     function computeRemainingSeconds(state) {
       const serverNow = state?.server_now ? new Date(state.server_now).getTime() : Date.now();
       const started = state?.live_started_at ? new Date(state.live_started_at).getTime() : null;
+      const topicShown = state?.topic_shown_at ? new Date(state.topic_shown_at).getTime() : null;
       const deadline = state?.me?.deadline_at ? new Date(state.me.deadline_at).getTime() : null;
 
       if (deadline) {
         return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
+      }
+      if (state?.phase === "topic" && topicShown) {
+        const topicDeadline = topicShown + 45000;
+        return Math.max(0, Math.ceil((topicDeadline - serverNow) / 1000));
       }
       if (started) {
         return Math.max(0, 150 - Math.ceil((serverNow - started) / 1000));
@@ -570,7 +562,7 @@
     }
 
     function syncLiveTimer(state) {
-      if (!state || state.phase !== "live") {
+      if (!state || (state.phase !== "topic" && state.phase !== "live")) {
         if (liveTimerHandle) {
           clearInterval(liveTimerHandle);
           liveTimerHandle = null;
@@ -580,7 +572,7 @@
 
       const tick = () => {
         const currentState = gameState;
-        if (!currentState || currentState.phase !== "live") return;
+        if (!currentState || (currentState.phase !== "topic" && currentState.phase !== "live")) return;
 
         const remaining = computeRemainingSeconds(currentState);
         const timer = document.getElementById("timer-display");
@@ -588,7 +580,8 @@
 
         if (timer) timer.textContent = formatSeconds(remaining);
         if (bar) {
-          const pct = Math.max(0, Math.min(100, (remaining / 150) * 100));
+          const total = currentState.phase === "topic" ? 45 : 150;
+          const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
           bar.style.width = `${pct}%`;
         }
 

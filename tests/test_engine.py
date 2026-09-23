@@ -8,13 +8,17 @@ from app.engine import (
     EngineError,
     activate_bounty,
     close_question,
+    get_round,
     lock_answer,
+    restart_round,
     show_topic,
     start_question,
+    try_autostart,
+    try_autoclose,
     use_freeze,
     use_swap,
 )
-from app.models import Base, Question, Team
+from app.models import Base, Question, Team, TeamQuestion
 from app.scoring import BOUNTY_COST
 
 
@@ -94,6 +98,41 @@ async def test_cannot_lock_after_deadline(ctx):
     with pytest.raises(EngineError) as e:
         await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
     assert e.value.code == "time_up"
+
+
+async def test_restart_round_resets_state_and_scores(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+    await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+    await close_question(session, "admin", clock)
+
+    await restart_round(session, "admin", clock)
+
+    rnd = await get_round(session)
+    await session.refresh(t1)
+    await session.refresh(t2)
+    rows = (await session.execute(__import__("sqlalchemy").select(TeamQuestion))).scalars().all()
+    assert rnd.phase == "idle"
+    assert rnd.current_question_id is None
+    assert t1.score == 0
+    assert t2.score == 0
+    assert rows == []
+
+
+async def test_topic_and_live_auto_progress(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    clock.advance_sec(45)
+    assert await try_autostart(session, clock) is True
+    rnd = await get_round(session)
+    assert rnd.phase == "live"
+    assert rnd.live_started_at is not None
+
+    clock.advance_sec(150)
+    assert await try_autoclose(session, clock) is True
+    rnd = await get_round(session)
+    assert rnd.phase == "closed"
 
 
 async def test_swap_requires_lock_and_is_once(ctx):

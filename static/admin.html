@@ -43,7 +43,7 @@
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-6">
-            <button id="btn-idle" onclick="setPhase('idle')" class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Idle</button>
+            <button id="btn-idle" onclick="setPhase('idle')" class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Restart</button>
             <button id="btn-topic" onclick="setPhase('topic')" class="phase-btn bg-purple-900 hover:bg-purple-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Topic</button>
             <button id="btn-live" onclick="setPhase('live')" class="phase-btn bg-lime-900 hover:bg-lime-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Live</button>
             <button id="btn-closed" onclick="setPhase('closed')" class="phase-btn bg-red-900 hover:bg-red-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Closed</button>
@@ -196,7 +196,15 @@
 
     async function setPhase(nextPhase) {
       if (nextPhase === "idle") {
-        alert("The backend does not expose a direct idle transition endpoint. Use the sequence controls instead.");
+        const ok = confirm("Restart the whole quiz? This clears the active question, resets team answers, and restores start-of-game scores.");
+        if (!ok) return;
+
+        try {
+          await api("/api/v1/admin/round/restart", { method: "POST" });
+          await refreshAll();
+        } catch (err) {
+          alert("Error: " + err.message);
+        }
         return;
       }
 

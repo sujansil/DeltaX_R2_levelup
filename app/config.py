@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     initial_team_score: int = 0
     cors_origins: str = "http://localhost:8000"
 
+    topic_duration_sec: int = 45
     question_duration_sec: int = 150
     freeze_bonus_sec: int = 30
     decay_start_sec: int = 60

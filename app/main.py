@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import SessionLocal, engine
-from app.engine import try_autoclose
+from app.engine import try_autoclose, try_autostart
 from app.models import Base, RoundState, User
 from app.redisutil import close_redis
 from app.routers import admin, auth, play, ws
@@ -68,6 +68,13 @@ async def _autoclose_loop() -> None:
     while True:
         try:
             async with SessionLocal() as session:
+                started = await try_autostart(session)
+                if started:
+                    await session.commit()
+                    from app.routers.admin import _fanout
+
+                    await _fanout(session)
+
                 closed = await try_autoclose(session)
                 if closed:
                     await session.commit()

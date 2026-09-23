@@ -108,6 +108,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     return {
         "phase": rnd.phase,
         "server_now": now.isoformat(),
+        "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
         "question": question,
         "team": {

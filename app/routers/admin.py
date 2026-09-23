@@ -16,6 +16,7 @@ from app.engine import (
     get_round,
     leaderboard,
     override_grade,
+    restart_round,
     show_topic,
     start_question,
 )
@@ -69,6 +70,7 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
         "type": "state",
         "phase": rnd.phase,
         "server_now": None,
+        "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
         "question": (
             {
@@ -269,6 +271,21 @@ async def api_close(
     return {"ok": True}
 
 
+@router.post("/round/restart")
+async def api_restart(
+    session: AsyncSession = Depends(get_session),
+    admin: Principal = Depends(require_admin),
+):
+    try:
+        await restart_round(session, actor=admin.username)
+        await session.commit()
+    except EngineError as e:
+        await session.rollback()
+        raise _err(e) from None
+    await _fanout(session)
+    return {"ok": True}
+
+
 @router.get("/round")
 async def api_round(session: AsyncSession = Depends(get_session), _: Principal = Depends(require_admin)):
     rnd = await get_round(session)
@@ -278,6 +295,7 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
         matrix = await admin_question_matrix(session, rnd.current_question_id)
     return {
         "phase": rnd.phase,
+        "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
         "current_question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
         "leaderboard": board,

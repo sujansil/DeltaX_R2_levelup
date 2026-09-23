@@ -169,12 +169,10 @@ def apply_swaps_fifo(
         if src not in a or dst not in a:
             continue
 
-        if not lck.get(dst) :
-            continue
-        
-        a[src], a[dst] = a[dst], a[src]
-        if not lck.get(dst):
-            lck[dst] = True
+        src_answer = a.get(src)
+        dst_answer = a.get(dst)
+        a[src], a[dst] = dst_answer, src_answer
         lck[src] = True
+        lck[dst] = True
         applied.append((src, dst))
     return a, lck, applied
