@@ -1,44 +1,57 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8" />
-  <title>Level Up — Play</title>
-  <link rel="stylesheet" href="/static/app.css" />
+    <meta charset="utf-8" />
+    <title>Player Dashboard</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #111; color: #eee; }
+        #status { font-weight: bold; padding: 10px; border: 1px solid #444; }
+    </style>
 </head>
 <body>
-  <header>
-    <strong id="teamName">Team</strong>
-    <span id="score"></span>
-    <span id="roleBadge"></span>
-    <a href="/" onclick="clearAuth()">logout</a>
-  </header>
-  <section>
-    <p>Phase: <b id="phase"></b> | Q <span id="qidx">-</span> | Topic: <span id="topic"></span></p>
-    <p>Timer: <b id="timer"></b> | Potential if correct: <b id="potential"></b></p>
-    <p id="ks"></p>
-    <div id="prompt"></div>
-    <div id="answerBox"></div>
-    <p>
-      <button id="lockBtn" disabled>Lock answer</button>
-    </p>
-    <p>
-      <button id="claimBtn">Become controller</button>
-      <button id="bountyBtn" disabled>Bounty (−2000)</button>
-      <button id="freezeBtn" disabled>Freeze (−750)</button>
-      <button id="peekBtn" disabled>Peek (−750)</button>
-    </p>
-    <p>
-      Swap target
-      <select id="swapTarget"></select>
-      <button id="swapBtn" disabled>Swap (once / round)</button>
-    </p>
-    <pre id="hint"></pre>
-    <pre id="me"></pre>
-    <h3>Leaderboard</h3>
-    <ol id="board"></ol>
-    <p id="notice" class="err"></p>
-  </section>
-  <script src="/static/common.js"></script>
-  <script src="/static/play.js"></script>
+    <h1>Player Dashboard</h1>
+    <div id="status">Status: Waiting for token...</div>
+    <p id="player-info" style="color: #888;"></p>
+    
+    <hr style="border-color: #333; margin: 20px 0;">
+    
+    <h3>Live Server Messages:</h3>
+    <pre id="messages" style="background: #000; padding: 10px; border: 1px solid #333; min-height: 100px;"></pre>
+
+    <!-- Import your secure API and WebSocket wrappers -->
+    <script src="/static/common.js"></script>
+    <script>
+        // 1. Call the secure auth() function directly from common.js
+        const a = auth();
+        const statusEl = document.getElementById("status");
+
+        if (!a || !a.access_token) {
+            statusEl.innerText = "Status: BLOCKED. No login token found.";
+            statusEl.style.color = "red";
+        } else {
+            statusEl.innerText = "Status: Token found. Connecting...";
+            statusEl.style.color = "orange";
+            
+            // Display the user securely parsed from the login data
+            document.getElementById("player-info").innerText = "Logged in as: " + (a.team_name || a.username);
+
+            // 2. Use your existing WebSocket connector from common.js
+            const ws = connectWs((data) => {
+                const msgBox = document.getElementById("messages");
+                msgBox.innerText = "Received update:\n" + JSON.stringify(data, null, 2) + "\n\n" + msgBox.innerText;
+            });
+
+            if (ws) {
+                ws.onopen = () => {
+                    statusEl.innerText = "Status: CONNECTED TO SERVER!";
+                    statusEl.style.color = "#4ade80"; // Bright green
+                };
+                ws.onclose = () => {
+                    statusEl.innerText = "Status: DISCONNECTED.";
+                    statusEl.style.color = "red";
+                };
+            }
+        }
+    </script>
 </body>
 </html>

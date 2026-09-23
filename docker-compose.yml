@@ -32,6 +32,8 @@ services:
     build: .
     ports:
       - "8000:8000"
+    volumes:
+      - .:/app
     environment:
       DATABASE_URL: postgresql+asyncpg://levelup:levelup@db:5432/levelup
       REDIS_URL: redis://redis:6379/0
