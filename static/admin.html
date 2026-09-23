@@ -11,7 +11,6 @@
     input { background-color: #0f172a; border: 1px solid #334155; color: white; padding: 0.5rem; border-radius: 0.375rem; width: 100%; margin-top: 0.25rem; }
     input:focus { outline: none; border-color: #38bdf8; }
     label { font-size: 0.875rem; font-weight: 600; color: #94a3b8; display: block; margin-top: 0.75rem; }
-    /* Custom Scrollbar for the panels */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #0f172a; }
     ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
@@ -20,8 +19,6 @@
 </head>
 <body class="p-6 selection:bg-cyan-300 selection:text-black">
   <div class="max-w-7xl mx-auto">
-    
-    <!-- Header -->
     <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
       <div>
         <h1 class="text-3xl font-black tracking-tight text-white">Live <span class="text-cyan-400">Dashboard</span></h1>
@@ -37,19 +34,14 @@
       </div>
     </div>
 
-    <!-- Main Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      
-      <!-- LEFT COLUMN: Controls & Teams -->
       <div class="flex flex-col gap-6 lg:col-span-1">
-        
-        <!-- Phase Control -->
         <div class="card shadow-xl shadow-black/40">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-white">Phase Control</h2>
             <span id="current-phase" class="font-mono text-xs uppercase tracking-widest text-cyan-400 font-bold bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20">LOADING...</span>
           </div>
-          
+
           <div class="grid grid-cols-2 gap-3 mb-6">
             <button id="btn-idle" onclick="setPhase('idle')" class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Idle</button>
             <button id="btn-topic" onclick="setPhase('topic')" class="phase-btn bg-purple-900 hover:bg-purple-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Topic</button>
@@ -58,14 +50,13 @@
           </div>
 
           <div class="border-t border-white/10 pt-4">
-            <button onclick="nextQuestion()" class="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-widest py-3 rounded-xl transition shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+            <button onclick="advanceSequence()" class="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-widest py-3 rounded-xl transition shadow-[0_0_15px_rgba(6,182,212,0.3)]">
               Advance Sequence <i data-lucide="arrow-right-circle" class="size-5"></i>
             </button>
             <p id="active-question-id" class="text-center text-xs text-gray-500 mt-2 font-mono">Active Q: None</p>
           </div>
         </div>
 
-        <!-- Add Team -->
         <div class="card shadow-xl shadow-black/40">
           <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i data-lucide="users" class="size-4 text-fuchsia-400"></i> Register Team</h2>
           <form id="team-form" onsubmit="createTeam(event)">
@@ -81,7 +72,6 @@
         </div>
       </div>
 
-      <!-- MIDDLE COLUMN: Question Manager -->
       <div class="card shadow-xl shadow-black/40 lg:col-span-1 flex flex-col h-[80vh]">
         <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-4">
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
@@ -89,24 +79,20 @@
           </h2>
           <button onclick="fetchQuestions()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
-        
-        <!-- Scrollable Question List -->
+
         <div id="questions-container" class="flex-1 overflow-y-auto space-y-4 pr-2">
           <p class="text-gray-500 text-sm text-center mt-10 animate-pulse">Loading questions...</p>
-          <!-- Injected via JS -->
         </div>
       </div>
 
-      <!-- RIGHT COLUMN: Leaderboard -->
       <div class="card shadow-xl shadow-black/40 lg:col-span-1 flex flex-col h-[80vh]">
         <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-4">
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="trophy" class="size-5 text-lime-400"></i> Live Standings (16 Max)
+            <i data-lucide="trophy" class="size-5 text-lime-400"></i> Live Standings
           </h2>
           <button onclick="fetchLeaderboard()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
-        
-        <!-- Scrollable Leaderboard List -->
+
         <div class="flex-1 overflow-y-auto pr-2">
           <table class="w-full text-left text-sm">
             <thead class="text-xs uppercase text-gray-500 sticky top-0 bg-[#1e293b] pb-2">
@@ -116,142 +102,304 @@
                 <th class="py-2 text-right">Score</th>
               </tr>
             </thead>
-            <tbody id="leaderboard-container" class="divide-y divide-white/5">
-              <!-- Injected via JS -->
-            </tbody>
+            <tbody id="leaderboard-container" class="divide-y divide-white/5"></tbody>
           </table>
         </div>
       </div>
 
+      <div class="card shadow-xl shadow-black/40 lg:col-span-3 flex flex-col h-[32vh]">
+        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="shield-alert" class="size-5 text-amber-400"></i> Audit / Dispute Log
+          </h2>
+          <button onclick="fetchAuditLog()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
+        </div>
+        <div id="audit-container" class="flex-1 overflow-y-auto space-y-2 pr-2"></div>
+      </div>
     </div>
   </div>
 
   <script src="/static/common.js"></script>
   <script>
     lucide.createIcons();
-    const a = auth();
-    if (!a || a.role !== 'admin') window.location.href = "/";
 
-    // ON LOAD: Fetch all data
-    window.onload = async () => {
-      await fetchGameState();
-      await fetchQuestions();
-      await fetchLeaderboard();
-    };
-
-    // --- 1. STATE MANAGEMENT ---
-    async function fetchGameState() {
-      try {
-        const res = await api("/api/v1/admin/state");
-        const state = await res.json();
-        updatePhaseUI(state.phase);
-        document.getElementById('active-question-id').innerText = state.current_question_id ? `Active Q: ${state.current_question_id.substring(0,8)}...` : "Active Q: None";
-      } catch (err) {
-        console.error("Failed to fetch state:", err);
-      }
+    const authState = auth();
+    if (!authState || authState.role !== "admin") {
+      window.location.href = "/";
     }
 
-    async function setPhase(newPhase) {
-      try {
-        await api("/api/v1/admin/state", { method: "POST", body: JSON.stringify({ phase: newPhase }) });
-        updatePhaseUI(newPhase);
-      } catch (err) { alert("Error: " + err.message); }
+    let questions = [];
+    let roundState = null;
+    let selectedQuestionId = null;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      connectWs((message) => {
+        const allowed = ["state", "admin_state", "leaderboard", "matrix", "controller", "controller_released", "locked", "swap_queued", "swap_applied", "card"];
+        if (message && allowed.includes(message.type)) {
+          refreshAll();
+        }
+      });
+      await refreshAll();
+      await fetchAuditLog();
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function answerSummary(answerKey) {
+      if (!answerKey) return "—";
+      if (answerKey.option_id) return `Option ${answerKey.option_id.toUpperCase()}`;
+      if (answerKey.option_ids) return `Options ${answerKey.option_ids.join(", ").toUpperCase()}`;
+      if (answerKey.value !== undefined) {
+        return answerKey.tolerance !== undefined ? `${answerKey.value} ± ${answerKey.tolerance}` : String(answerKey.value);
+      }
+      return JSON.stringify(answerKey);
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadRound(), fetchQuestions(), fetchLeaderboard()]);
+    }
+
+    async function loadRound() {
+      roundState = await api("/api/v1/admin/round");
+      updatePhaseUI(roundState.phase || "idle");
+
+      const activeId = roundState.current_question_id || null;
+      document.getElementById("active-question-id").textContent = activeId
+        ? `Active Q: ${activeId.slice(0, 8)}...`
+        : "Active Q: None";
+
+      if (activeId) selectedQuestionId = activeId;
     }
 
     function updatePhaseUI(phase) {
-      document.getElementById('current-phase').innerText = "STATUS: " + phase;
-      document.querySelectorAll('.phase-btn').forEach(btn => {
-        btn.classList.remove('border-white', 'opacity-100');
-        btn.classList.add('opacity-50', 'border-transparent');
+      const p = phase || "idle";
+      document.getElementById("current-phase").textContent = "STATUS: " + p.toUpperCase();
+
+      document.querySelectorAll(".phase-btn").forEach((btn) => {
+        btn.classList.remove("border-white", "opacity-100");
+        btn.classList.add("opacity-50", "border-transparent");
       });
-      const activeBtn = document.getElementById(`btn-${phase}`);
-      if (activeBtn) activeBtn.classList.remove('opacity-50', 'border-transparent');
-      if (activeBtn) activeBtn.classList.add('border-white', 'opacity-100');
-    }
 
-    async function nextQuestion() {
-      if(!confirm("Advance to the next question?")) return;
-      try {
-        await api("/api/v1/admin/next-question", { method: "POST" });
-        await fetchGameState(); // Refresh state immediately
-      } catch (err) { alert("Error: " + err.message); }
-    }
-
-    // --- 2. QUESTION MANAGER ---
-    async function fetchQuestions() {
-      const container = document.getElementById('questions-container');
-      try {
-        const res = await api("/api/v1/admin/questions"); // Assumes GET route exists
-        const questions = await res.json();
-        
-        if (questions.length === 0) {
-          container.innerHTML = `<p class="text-gray-500 text-sm text-center">No questions found. Use the Question Builder.</p>`;
-          return;
-        }
-
-        container.innerHTML = questions.sort((a,b) => a.index - b.index).map(q => `
-          <div class="bg-black/20 border border-white/5 p-4 rounded-xl">
-            <div class="flex justify-between items-start mb-2">
-              <span class="font-mono text-xs font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">Q${q.index} | ${q.topic}</span>
-              <span class="text-[10px] text-gray-500 uppercase tracking-wider">${q.qtype}</span>
-            </div>
-            <p class="text-sm text-white font-medium mb-3">${q.prompt}</p>
-            <div class="space-y-1">
-              <p class="text-xs"><span class="text-gray-500">Answer:</span> <span class="text-lime-400 font-mono">${q.answer_key.exact}</span></p>
-              ${q.hint ? `<p class="text-xs"><span class="text-gray-500">Hint:</span> <span class="text-fuchsia-300 italic">${q.hint}</span></p>` : ''}
-            </div>
-          </div>
-        `).join('');
-      } catch (err) {
-        container.innerHTML = `<p class="text-red-400 text-xs p-4">Error fetching questions. Ensure backend GET route exists. (${err.message})</p>`;
+      const active = document.getElementById(`btn-${p}`);
+      if (active) {
+        active.classList.remove("opacity-50", "border-transparent");
+        active.classList.add("border-white", "opacity-100");
       }
     }
 
-    // --- 3. LEADERBOARD ---
-    async function fetchLeaderboard() {
-      const container = document.getElementById('leaderboard-container');
+    async function setPhase(nextPhase) {
+      if (nextPhase === "idle") {
+        alert("The backend does not expose a direct idle transition endpoint. Use the sequence controls instead.");
+        return;
+      }
+
+      const qid = selectedQuestionId || roundState?.current_question_id || (questions[0] && questions[0].id);
+      if (!qid) {
+        alert("Create a question before starting the round.");
+        return;
+      }
+
       try {
-        const res = await api("/api/v1/admin/teams"); // Assumes GET route returns teams
-        const teams = await res.json();
-        
-        container.innerHTML = teams.sort((a,b) => b.score - a.score).map((team, index) => `
-          <tr class="hover:bg-white/5 transition">
-            <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
-            <td class="py-3 font-bold text-white">${team.name}</td>
-            <td class="py-3 text-right font-mono text-lime-400">${team.score.toLocaleString()}</td>
-          </tr>
-        `).join('');
+        if (nextPhase === "topic") {
+          await api(`/api/v1/admin/round/show-topic/${qid}`, { method: "POST" });
+        } else if (nextPhase === "live") {
+          await api("/api/v1/admin/round/start", { method: "POST" });
+        } else if (nextPhase === "closed") {
+          await api("/api/v1/admin/round/close", { method: "POST" });
+        }
+        await refreshAll();
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    async function advanceSequence() {
+      if (!questions.length) {
+        alert("Create a question before advancing.");
+        return;
+      }
+
+      const sorted = [...questions].sort((a, b) => a.index - b.index);
+      const nextId = roundState?.current_question_id
+        ? sorted.find((q) => q.id === roundState.current_question_id)
+          ? roundState.phase === "topic"
+            ? roundState.current_question_id
+            : roundState.phase === "live"
+              ? roundState.current_question_id
+              : sorted[sorted.findIndex((q) => q.id === roundState.current_question_id) + 1]?.id || sorted[0].id
+          : sorted[0].id
+        : sorted[0].id;
+
+      if (!nextId) {
+        alert("No question available.");
+        return;
+      }
+
+      try {
+        if (!roundState || roundState.phase === "idle" || roundState.phase === "closed") {
+          await api(`/api/v1/admin/round/show-topic/${nextId}`, { method: "POST" });
+        } else if (roundState.phase === "topic") {
+          await api("/api/v1/admin/round/start", { method: "POST" });
+        } else if (roundState.phase === "live") {
+          await api("/api/v1/admin/round/close", { method: "POST" });
+        }
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function fetchQuestions() {
+      const container = document.getElementById("questions-container");
+      try {
+        questions = await api("/api/v1/admin/questions");
+        if (!questions.length) {
+          container.innerHTML = '<p class="text-gray-500 text-sm text-center">No questions found. Use the Question Builder.</p>';
+          return;
+        }
+
+        container.innerHTML = [...questions]
+          .sort((a, b) => a.index - b.index)
+          .map((q) => `
+            <div class="bg-black/20 border border-white/5 p-4 rounded-xl">
+              <div class="flex justify-between items-start mb-2 gap-2">
+                <span class="font-mono text-xs font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">Q${q.index} | ${escapeHtml(q.topic)}</span>
+                <span class="text-[10px] text-gray-500 uppercase tracking-wider">${escapeHtml(q.type)}</span>
+              </div>
+              <p class="text-sm text-white font-medium mb-3">${escapeHtml(q.prompt)}</p>
+              <div class="space-y-1 text-xs">
+                <p><span class="text-gray-500">Answer:</span> <span class="text-lime-400 font-mono">${escapeHtml(answerSummary(q.answer_key))}</span></p>
+                ${q.hint ? `<p><span class="text-gray-500">Hint:</span> <span class="text-fuchsia-300 italic">${escapeHtml(q.hint)}</span></p>` : ""}
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button type="button" onclick="selectQuestion('${q.id}')" class="px-2 py-1 text-[11px] bg-white/10 hover:bg-white/20 rounded transition">Select</button>
+                <button type="button" onclick="showTopicFor('${q.id}')" class="px-2 py-1 text-[11px] bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-200 rounded transition">Show Topic</button>
+                <button type="button" onclick="startRoundNow()" class="px-2 py-1 text-[11px] bg-lime-500/20 hover:bg-lime-500/30 text-lime-200 rounded transition">Start</button>
+                <button type="button" onclick="closeRoundNow()" class="px-2 py-1 text-[11px] bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded transition">Close</button>
+              </div>
+            </div>
+          `).join("");
+      } catch (err) {
+        container.innerHTML = `<p class="text-red-400 text-xs p-4">Error loading questions. (${escapeHtml(err.message)})</p>`;
+      }
+    }
+
+    function selectQuestion(id) {
+      selectedQuestionId = id;
+      const active = document.getElementById("active-question-id");
+      active.textContent = `Active Q: ${id.slice(0, 8)}...`;
+    }
+
+    async function showTopicFor(questionId) {
+      selectedQuestionId = questionId;
+      try {
+        await api(`/api/v1/admin/round/show-topic/${questionId}`, { method: "POST" });
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function startRoundNow() {
+      try {
+        await api("/api/v1/admin/round/start", { method: "POST" });
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function closeRoundNow() {
+      try {
+        await api("/api/v1/admin/round/close", { method: "POST" });
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function fetchLeaderboard() {
+      const container = document.getElementById("leaderboard-container");
+      try {
+        const teams = await api("/api/v1/admin/teams");
+        container.innerHTML = [...teams]
+          .sort((a, b) => b.score - a.score)
+          .map((team, index) => `
+            <tr class="hover:bg-white/5 transition">
+              <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
+              <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
+              <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
+            </tr>
+          `).join("");
       } catch (err) {
         container.innerHTML = `<tr><td colspan="3" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
       }
     }
 
-    // --- 4. TEAMS ---
-    async function createTeam(e) {
-      e.preventDefault();
-      const status = document.getElementById('team-status');
-      const fd = new FormData(e.target);
+    async function fetchAuditLog() {
+      const container = document.getElementById("audit-container");
+      try {
+        const rows = await api("/api/v1/admin/audit");
+        if (!rows || !rows.length) {
+          container.innerHTML = '<div class="text-sm text-gray-400">No audit events yet.</div>';
+          return;
+        }
+
+        container.innerHTML = rows.slice(0, 12).map((row) => `
+          <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-mono text-cyan-300">${escapeHtml(row.kind || "event")}</span>
+              <span class="text-gray-400">${escapeHtml(row.at ? new Date(row.at).toLocaleString() : "—")}</span>
+            </div>
+            <div class="mt-2 text-gray-300">
+              <span class="text-gray-500">Actor:</span> ${escapeHtml(row.actor || "system")}
+              ${row.team_id ? ` | <span class="text-gray-500">Team:</span> ${escapeHtml(row.team_id.slice(0, 8))}` : ""}
+            </div>
+            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] text-amber-200">${escapeHtml(JSON.stringify(row.payload || {}, null, 2))}</pre>
+          </div>
+        `).join("");
+      } catch (err) {
+        container.innerHTML = `<div class="text-red-400 text-xs">Audit log unavailable: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function createTeam(event) {
+      event.preventDefault();
+      const status = document.getElementById("team-status");
+      const fd = new FormData(event.target);
+
       try {
         await api("/api/v1/admin/teams", {
           method: "POST",
           body: JSON.stringify({
-            name: fd.get("name"),
-            username: fd.get("username"),
-            password: fd.get("password"),
-            score: parseInt(fd.get("score") || 0)
-          })
+            name: String(fd.get("name") || "").trim(),
+            username: String(fd.get("username") || "").trim(),
+            password: String(fd.get("password") || "").trim(),
+            score: Number(fd.get("score") || 0),
+          }),
         });
-        status.innerText = "Team added!";
+
+        status.textContent = "Team added!";
         status.className = "mt-2 text-center text-xs font-mono text-green-400";
-        e.target.reset();
-        await fetchLeaderboard(); // Auto-refresh leaderboard
+        event.target.reset();
+        await fetchLeaderboard();
       } catch (err) {
-        status.innerText = err.message;
+        status.textContent = err.message;
         status.className = "mt-2 text-center text-xs font-mono text-red-400";
       }
     }
 
-    function logout() { clearAuth(); window.location.href = "/"; }
+    function logout() {
+      clearAuth();
+      window.location.href = "/";
+    }
   </script>
 </body>
 </html>

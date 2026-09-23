@@ -15,7 +15,6 @@
 </head>
 <body class="min-h-screen p-6 selection:bg-cyan-300 selection:text-black">
   <div class="max-w-4xl mx-auto">
-    
     <div class="flex items-center justify-between mb-8">
       <div>
         <h1 class="text-3xl font-black tracking-tight text-white">Question <span class="text-cyan-300">Builder</span></h1>
@@ -28,8 +27,6 @@
 
     <div class="card shadow-2xl shadow-cyan-900/20">
       <form id="question-form" onsubmit="createQuestion(event)">
-        
-        <!-- Metadata -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 pb-8 border-b border-white/10">
           <div>
             <label class="label">Question Index</label>
@@ -42,31 +39,19 @@
           <div>
             <label class="label">Question Type</label>
             <select name="qtype" id="qtype" onchange="toggleType()" class="input-field">
-              <!-- Fixed to match backend Pydantic validation -->
               <option value="mcq_single">Multiple Choice (Single Answer)</option>
-              <option value="numeric">Numerical</option>
+              <option value="mcq_multi">Multiple Choice (Multi Answer)</option>
+              <option value="numeric">Numeric</option>
+              <option value="text">Text</option>
             </select>
           </div>
         </div>
 
-        <!-- Prompt -->
         <div class="mb-8 pb-8 border-b border-white/10">
           <label class="label text-cyan-300">Main Prompt</label>
           <textarea name="prompt" rows="3" required placeholder="Enter the question text here..." class="input-field mb-4"></textarea>
-          
-          <div class="flex items-center gap-4">
-            <div class="flex-1">
-              <label class="label text-xs">Media / Image URL (Optional)</label>
-              <input name="media_url" placeholder="https://example.com/image.png" class="input-field text-sm" />
-            </div>
-            <div class="flex-1 opacity-50 cursor-not-allowed" title="Backend upload route required">
-              <label class="label text-xs">Upload File (Requires Backend Update)</label>
-              <input type="file" disabled class="input-field text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-300/10 file:text-cyan-300" />
-            </div>
-          </div>
         </div>
 
-        <!-- Options Builder -->
         <div id="mcq-section" class="mb-8 pb-8 border-b border-white/10">
           <div class="flex justify-between items-center mb-4">
             <label class="label text-fuchsia-300 mb-0">Answer Options</label>
@@ -74,18 +59,15 @@
               <i data-lucide="plus" class="size-3"></i> Add Option
             </button>
           </div>
-          
-          <div id="options-container" class="space-y-4">
-            <!-- Options injected here by JS -->
-          </div>
+
+          <div id="options-container" class="space-y-4"></div>
         </div>
 
-        <!-- Correct Answer & Hint -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div>
             <label class="label text-lime-300">Correct Answer Key</label>
-            <input name="answer" required placeholder="Exact text (e.g. 'A') or number (e.g. '42')" class="input-field border-lime-300/30 focus:border-lime-300" />
-            <p class="text-xs text-gray-500 mt-2">Must exactly match the intended answer.</p>
+            <input name="answer" required placeholder="Example: b, or 42, or Texas Instruments" class="input-field border-lime-300/30 focus:border-lime-300" />
+            <p class="text-xs text-gray-500 mt-2">For MCQ, use option ids like a, b, c. For multi-answer MCQ, use comma-separated ids such as b, c.</p>
           </div>
           <div>
             <label class="label">Hint (Optional)</label>
@@ -93,12 +75,10 @@
           </div>
         </div>
 
-        <!-- Submit -->
         <button type="submit" class="w-full flex items-center justify-center gap-2 bg-cyan-400 hover:bg-cyan-300 text-black font-black uppercase tracking-widest py-4 rounded-xl transition shadow-[0_0_20px_rgba(34,211,238,0.2)]">
           <i data-lucide="server" class="size-5"></i> Save Question to Database
         </button>
         <p id="status-msg" class="text-center mt-4 text-sm font-mono"></p>
-
       </form>
     </div>
   </div>
@@ -106,93 +86,116 @@
   <script src="/static/common.js"></script>
   <script>
     lucide.createIcons();
-    
-    // Check Auth
-    const a = auth();
-    if (!a || a.role !== 'admin') {
+
+    const authState = auth();
+    if (!authState || authState.role !== "admin") {
       window.location.href = "/";
     }
 
     let optionCount = 0;
 
-    // Toggle MCQ vs Numeric UI
     function toggleType() {
-      const isMcq = document.getElementById('qtype').value === 'mcq_single';
-      document.getElementById('mcq-section').style.display = isMcq ? 'block' : 'none';
+      const type = document.getElementById("qtype").value;
+      const isMcq = type === "mcq_single" || type === "mcq_multi";
+      document.getElementById("mcq-section").style.display = isMcq ? "block" : "none";
     }
 
-    // Add dynamic option row
     function addOption() {
-      optionCount++;
+      optionCount += 1;
       const id = `opt-${optionCount}`;
       const html = `
         <div id="${id}" class="flex gap-4 items-start bg-black/20 p-4 rounded-xl border border-white/5 relative group">
           <button type="button" onclick="document.getElementById('${id}').remove()" class="absolute -right-2 -top-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition">
             <i data-lucide="x" class="size-3"></i>
           </button>
-          <div class="flex-1">
-            <input type="text" class="opt-text input-field text-sm" placeholder="Option Text (e.g. Alan Turing)" required />
+          <div class="w-20">
+            <label class="label text-[10px] mb-2">ID</label>
+            <input type="text" class="opt-id input-field text-sm" value="${String.fromCharCode(97 + (optionCount - 1))}" />
           </div>
           <div class="flex-1">
-            <input type="text" class="opt-img input-field text-sm" placeholder="Image URL (Optional)" />
+            <label class="label text-[10px] mb-2">Text</label>
+            <input type="text" class="opt-text input-field text-sm" placeholder="Option text" required />
           </div>
         </div>
       `;
-      document.getElementById('options-container').insertAdjacentHTML('beforeend', html);
+      document.getElementById("options-container").insertAdjacentHTML("beforeend", html);
       lucide.createIcons();
     }
 
-    // Initialize with two options
     addOption();
     addOption();
+    toggleType();
 
-    // Form Submission
-    async function createQuestion(e) {
-      e.preventDefault();
-      const status = document.getElementById('status-msg');
-      status.innerText = "Processing...";
+    async function createQuestion(event) {
+      event.preventDefault();
+
+      const status = document.getElementById("status-msg");
+      status.textContent = "Processing...";
       status.className = "text-center mt-4 text-sm font-mono text-cyan-300 animate-pulse";
 
-      const fd = new FormData(e.target);
-      const qtype = fd.get("qtype"); // 'mcq_single' or 'numeric'
-      
-      // Build options array for MCQ
-      let optionsList = null;
-      if (qtype === "mcq_single") {
-        optionsList = [];
-        document.querySelectorAll('#options-container > div').forEach(row => {
-          const text = row.querySelector('.opt-text').value;
-          const img = row.querySelector('.opt-img').value;
-          // Store as objects containing both text and optional image
-          optionsList.push({ text: text, image_url: img || null });
-        });
+      const fd = new FormData(event.target);
+      const qtype = String(fd.get("qtype") || "mcq_single");
+      const topic = String(fd.get("topic") || "").trim();
+      const prompt = String(fd.get("prompt") || "").trim();
+      const answerRaw = String(fd.get("answer") || "").trim();
+      const hint = String(fd.get("hint") || "").trim();
+
+      let options = null;
+      let answerKey = {};
+
+      if (qtype === "mcq_single" || qtype === "mcq_multi") {
+        const rows = [...document.querySelectorAll("#options-container > div")];
+        options = rows.map((row) => {
+          const id = (row.querySelector(".opt-id")?.value || "").trim() || "a";
+          const text = (row.querySelector(".opt-text")?.value || "").trim();
+          return { id: id.toLowerCase(), text };
+        }).filter((opt) => opt.text);
+
+        if (!options.length) {
+          status.textContent = "Add at least one option.";
+          status.className = "text-center mt-4 text-sm font-mono text-red-500";
+          return;
+        }
+
+        if (qtype === "mcq_single") {
+          answerKey = { option_id: answerRaw.toLowerCase() };
+        } else {
+          answerKey = {
+            option_ids: answerRaw.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
+          };
+        }
+      } else if (qtype === "numeric") {
+        answerKey = { value: answerRaw, tolerance: "0" };
+      } else {
+        answerKey = { value: answerRaw };
       }
 
-      // Build answer key
-      const rawAnswer = fd.get("answer");
-      const answerKey = qtype === "numeric" ? { exact: parseFloat(rawAnswer) } : { exact: rawAnswer };
-
       const payload = {
-        index: parseInt(fd.get("index")),
-        topic: fd.get("topic"),
-        qtype: qtype,
-        prompt: fd.get("prompt"),
-        media_url: fd.get("media_url") || null,
-        options: optionsList,
+        index: Number(fd.get("index")),
+        topic,
+        prompt,
+        qtype,
+        options,
         answer_key: answerKey,
-        hint: fd.get("hint") || null
+        hint: hint || null,
       };
 
       try {
         await api("/api/v1/admin/questions", {
           method: "POST",
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
-        status.innerText = "SUCCESS: Question locked in database.";
+
+        status.textContent = "SUCCESS: Question saved to the database.";
         status.className = "text-center mt-4 text-sm font-mono text-lime-400";
-        setTimeout(() => e.target.reset(), 2000);
+        event.target.reset();
+        optionCount = 0;
+        document.getElementById("options-container").innerHTML = "";
+        addOption();
+        addOption();
+        toggleType();
       } catch (err) {
-        status.innerText = "ERROR: " + err.message;
+        status.textContent = "ERROR: " + err.message;
         status.className = "text-center mt-4 text-sm font-mono text-red-500";
       }
     }

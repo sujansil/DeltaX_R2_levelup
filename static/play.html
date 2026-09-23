@@ -4,22 +4,25 @@
   <meta charset="utf-8" />
   <title>Level Up — Player Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Load Lucide Icons for vanilla HTML -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
-    /* Hide phases by default, manipulated via JS */
+    body { overflow-x: hidden; overflow-y: auto; }
     .phase-screen { display: none; }
     .phase-screen.active { display: block; }
+    .answer-option.selected {
+      border-color: rgba(34, 211, 238, 0.9);
+      background: rgba(34, 211, 238, 0.08);
+    }
+    #leaderboard-container {
+      max-height: 520px;
+      overflow-y: auto;
+    }
   </style>
 </head>
-<body class="min-h-screen overflow-hidden bg-[#030712] text-white selection:bg-cyan-300 selection:text-black">
-  
-  <!-- Background Effects -->
+<body class="min-h-screen overflow-x-hidden bg-[#030712] text-white selection:bg-cyan-300 selection:text-black">
   <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_88%_10%,rgba(217,70,239,0.1),transparent_28%)]"></div>
-  
+
   <div class="relative mx-auto min-h-screen max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-    
-    <!-- Header -->
     <header class="flex flex-col gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <div class="flex items-center gap-2">
@@ -29,7 +32,7 @@
         <h1 class="mt-3 text-3xl font-black tracking-[-0.04em] text-white sm:text-5xl">Level<span class="text-cyan-300">Up</span> Puzzles</h1>
         <p id="connection-status" class="mt-2 max-w-xl text-sm font-mono text-orange-400 animate-pulse">Connecting to server...</p>
       </div>
-      <!-- Phase Indicators (Controlled by Host) -->
+
       <div class="flex flex-wrap gap-2" aria-label="Current Phase">
         <div id="indicator-idle" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Idle</div>
         <div id="indicator-topic" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Topic</div>
@@ -39,8 +42,6 @@
     </header>
 
     <div class="mt-6 grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)_260px] lg:items-start">
-      
-      <!-- LEFT: Leaderboard -->
       <div class="order-2 lg:order-1">
         <section class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-cyan-950/10 sm:p-5">
           <div class="flex items-start justify-between gap-4">
@@ -50,81 +51,51 @@
             </div>
             <i data-lucide="trophy" class="size-5 text-cyan-300"></i>
           </div>
-          <div class="mt-5 flex flex-col gap-2" id="leaderboard-container">
-            <!-- Populated via JS, hardcoded for visual testing -->
-            <div class="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3">
-              <span class="grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">1</span>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-semibold text-white">Quantum Crew</p>
-                <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
-                  <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" style="width: 100%"></div>
-                </div>
-              </div>
-              <span class="font-mono text-xs font-bold text-cyan-200">12,400</span>
-            </div>
-          </div>
+          <div class="mt-5 flex flex-col gap-2" id="leaderboard-container"></div>
         </section>
       </div>
 
-      <!-- CENTER: Main Stage -->
       <section class="order-1 rounded-2xl border border-cyan-300/20 bg-[#07111f]/90 p-5 shadow-[0_0_70px_rgba(34,211,238,0.08)] sm:p-8 lg:order-2 lg:min-h-[590px]">
         <div class="flex items-center justify-between border-b border-white/10 pb-4">
           <div class="flex items-center gap-2">
             <span class="size-2 animate-pulse rounded-full bg-lime-300 shadow-[0_0_12px_#bef264]"></span>
-            <span id="phase-label" class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-white/50">Live transmission</span>
+            <span id="phase-label" class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-white/50">Waiting</span>
           </div>
-          <span class="font-mono text-xs text-white/40">Q-004 / 010</span>
+          <span id="question-meta" class="font-mono text-xs text-white/40">Q —</span>
         </div>
-        
+
         <div class="flex min-h-[500px] flex-col justify-center py-8">
-          
-          <!-- PHASE: IDLE -->
           <div id="screen-idle" class="phase-screen text-center">
             <i data-lucide="timer-reset" class="mx-auto size-10 text-cyan-300"></i>
             <p class="mt-7 animate-pulse font-mono text-2xl font-bold tracking-[0.18em] text-cyan-200 sm:text-4xl">WAITING FOR EVENT...</p>
             <p class="mt-4 text-sm text-white/40">The host is preparing your first challenge.</p>
           </div>
 
-          <!-- PHASE: TOPIC -->
           <div id="screen-topic" class="phase-screen">
             <p class="font-mono text-xs uppercase tracking-[0.28em] text-fuchsia-300">Incoming topic</p>
-            <h2 id="topic-title" class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">The birth of<br /><span class="text-cyan-300">the internet.</span></h2>
+            <h2 id="topic-title" class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">Loading...</h2>
             <p id="topic-desc" class="mt-6 max-w-lg text-white/50">Get ready. The next round will test your knowledge.</p>
           </div>
 
-          <!-- PHASE: LIVE -->
-          <div id="screen-live" class="phase-screen active">
+          <div id="screen-live" class="phase-screen">
             <div class="flex items-end justify-between">
               <div>
                 <p class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-fuchsia-300">Active Question</p>
                 <p class="mt-3 text-sm text-white/50">Make your selection</p>
               </div>
               <div class="text-right">
-                <p id="timer-display" class="font-mono text-3xl font-black tabular-nums text-lime-300">00:27</p>
+                <p id="timer-display" class="font-mono text-3xl font-black tabular-nums text-lime-300">00:00</p>
                 <p class="font-mono text-[9px] uppercase tracking-widest text-white/40">remaining</p>
               </div>
             </div>
-            
+
             <div class="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div id="timer-bar" class="h-full rounded-full bg-gradient-to-r from-lime-300 via-cyan-300 to-fuchsia-400 transition-all" style="width: 90%"></div>
+              <div id="timer-bar" class="h-full rounded-full bg-gradient-to-r from-lime-300 via-cyan-300 to-fuchsia-400 transition-all" style="width: 0%"></div>
             </div>
-            
-            <h2 id="question-text" class="mt-9 text-2xl font-bold leading-tight tracking-tight text-white sm:text-4xl">Who is credited with inventing the World Wide Web?</h2>
-            
-            <div class="mt-7 grid gap-3 sm:grid-cols-2" id="answers-container">
-              <!-- Answers generated by JS -->
-              <button onclick="selectAnswer('A')" id="btn-A" class="answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]">
-                <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">A</span>
-                <span>
-                  <span class="block font-semibold text-white">Alan Turing</span>
-                </span>
-              </button>
-              <button onclick="selectAnswer('B')" id="btn-B" class="answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]">
-                <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">B</span>
-                <span><span class="block font-semibold text-white">Claude Shannon</span></span>
-              </button>
-            </div>
-            
+
+            <h2 id="question-text" class="mt-9 text-2xl font-bold leading-tight tracking-tight text-white sm:text-4xl">Waiting for the current question...</h2>
+            <div id="answers-container" class="mt-7"></div>
+
             <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
               <button id="submit-btn" disabled class="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-lime-300 px-6 text-sm font-black uppercase tracking-widest text-black shadow-[0_0_28px_rgba(190,242,100,0.2)] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40">
                 Submit answer <i data-lucide="arrow-right" class="size-4"></i>
@@ -132,18 +103,15 @@
             </div>
           </div>
 
-          <!-- PHASE: CLOSED -->
           <div id="screen-closed" class="phase-screen text-center">
             <i data-lucide="trophy" class="mx-auto size-14 text-lime-300"></i>
             <p class="mt-7 font-mono text-xs font-bold uppercase tracking-[0.3em] text-cyan-300">Session complete</p>
             <h2 class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">THANK YOU<br /><span class="text-fuchsia-300">FOR PLAYING!</span></h2>
             <p class="mt-6 text-white/50">Final score: <strong id="final-score" class="text-lime-300">0 pts</strong></p>
           </div>
-
         </div>
       </section>
 
-      <!-- RIGHT: Side Stats -->
       <div class="order-3">
         <aside class="flex flex-col gap-4">
           <section class="rounded-2xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/10 to-transparent p-5">
@@ -160,6 +128,24 @@
               <i data-lucide="flame" class="size-6 text-fuchsia-300"></i>
             </div>
           </section>
+
+          <section class="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <div class="space-y-2">
+              <button id="controller-btn" class="w-full rounded-xl border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-bold text-cyan-200">Claim controller</button>
+              <button id="release-btn" class="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/80">Release controller</button>
+              <button id="bounty-btn" class="w-full rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 font-bold text-amber-200">Use Bounty</button>
+              <button id="freeze-btn" class="w-full rounded-xl border border-sky-300/40 bg-sky-300/10 px-3 py-2 font-bold text-sky-200">Use Freeze</button>
+              <button id="peek-btn" class="w-full rounded-xl border border-violet-300/40 bg-violet-300/10 px-3 py-2 font-bold text-violet-200">Use Peek</button>
+            </div>
+
+            <div class="mt-4">
+              <label class="text-[10px] uppercase tracking-widest text-white/40">Swap with</label>
+              <select id="swap-target" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-900 p-2 text-sm text-white"></select>
+              <button id="swap-btn" class="mt-2 w-full rounded-xl border border-fuchsia-300/50 bg-fuchsia-400/10 px-3 py-2 font-bold text-fuchsia-200">Swap</button>
+            </div>
+
+            <div id="player-meta" class="mt-4 text-xs text-white/60 font-mono"></div>
+          </section>
         </aside>
       </div>
     </div>
@@ -167,78 +153,451 @@
 
   <script src="/static/common.js"></script>
   <script>
-    // 1. Initialize Icons
     lucide.createIcons();
 
-    // 2. Authentication Hook
-    const a = auth();
-    if (!a || !a.access_token) {
-        document.getElementById('connection-status').innerText = "Access Denied. Please Login.";
-        document.getElementById('connection-status').className = "mt-2 max-w-xl text-sm font-mono text-red-500";
-    } else {
-        document.getElementById('team-name').innerText = a.team_name || a.username;
-        
-        // 3. WebSocket Handshake (Using common.js)
-        const ws = connectWs((data) => {
-            console.log("WebSocket Data:", data);
-            
-            // Example of how to hook data to the UI:
-            if(data.type === "state_update" && data.phase) {
-               setPhase(data.phase);
-            }
-        });
-
-        if (ws) {
-            ws.onopen = () => {
-                const status = document.getElementById('connection-status');
-                status.innerText = "Connected and waiting for host...";
-                status.className = "mt-2 max-w-xl text-sm font-mono text-[#4ade80]";
-            };
-        }
+    const authState = auth();
+    if (!authState || !authState.access_token) {
+      window.location.href = "/";
     }
 
-    // --- UI Logic Functions ---
-    let currentAnswer = null;
+    let gameState = null;
+    let selectedChoice = null;
+    let selectedMulti = new Set();
+
+    let liveTimerHandle = null;
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      document.getElementById("team-name").textContent = authState.team_name || authState.username || "PLAYER";
+
+      const ws = connectWs((message) => {
+        if (message && (message.type === "state" || message.type === "state_tick" || message.type === "leaderboard" || message.type === "controller" || message.type === "controller_released" || message.type === "locked" || message.type === "swap_queued" || message.type === "swap_applied" || message.type === "card")) {
+          refreshState();
+        }
+      });
+
+      if (ws) {
+        ws.onopen = () => {
+          const status = document.getElementById("connection-status");
+          status.textContent = "Connected and waiting for host...";
+          status.className = "mt-2 max-w-xl text-sm font-mono text-[#4ade80]";
+        };
+      }
+
+      await refreshState();
+    });
+
+    async function refreshState() {
+      gameState = await api("/api/v1/play/state");
+      renderState(gameState);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
 
     function setPhase(phase) {
-      // 1. Swap the main screen content
-      document.querySelectorAll('.phase-screen').forEach(el => el.classList.remove('active'));
-      const activeScreen = document.getElementById('screen-' + phase);
-      if (activeScreen) activeScreen.classList.add('active');
-      
-      document.getElementById('phase-label').innerText = phase === 'live' ? 'Live transmission' : 'Event ' + phase;
+      const nextPhase = phase || "idle";
+      document.querySelectorAll(".phase-screen").forEach((el) => el.classList.remove("active"));
+      const active = document.getElementById("screen-" + nextPhase);
+      if (active) active.classList.add("active");
 
-      // 2. Highlight the active status badge in the header
-      const phases = ['idle', 'topic', 'live', 'closed'];
-      phases.forEach(p => {
-        const indicator = document.getElementById('indicator-' + p);
+      const labelMap = {
+        idle: "Waiting",
+        topic: "Incoming Topic",
+        live: "Live Transmission",
+        closed: "Closed",
+      };
+      const phaseLabel = document.getElementById("phase-label");
+      if (phaseLabel) phaseLabel.textContent = labelMap[nextPhase] || "Waiting";
+
+      ["idle", "topic", "live", "closed"].forEach((p) => {
+        const indicator = document.getElementById("indicator-" + p);
         if (!indicator) return;
-        
-        if (p === phase) {
-          // Highlighted state (Cyan)
-          indicator.className = "min-h-10 flex items-center rounded-full border border-cyan-300 bg-cyan-300 px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-black transition";
-        } else {
-          // Dimmed state
-          indicator.className = "min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition";
-        }
+        indicator.className = p === nextPhase
+          ? "min-h-10 flex items-center rounded-full border border-cyan-300 bg-cyan-300 px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-black transition"
+          : "min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition";
       });
     }
 
-    function selectAnswer(key) {
-      currentAnswer = key;
-      // Reset all buttons
-      document.querySelectorAll('.answer-btn').forEach(btn => {
-        btn.className = "answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]";
-        btn.firstElementChild.className = "grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200";
+    function renderLeaderboard(rows) {
+      const container = document.getElementById("leaderboard-container");
+      if (!rows || !rows.length) {
+        container.innerHTML = '<div class="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-white/50">No standings yet.</div>';
+        return;
+      }
+
+      container.innerHTML = rows
+        .slice(0, 16)
+        .map((team, idx) => `
+          <div class="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3">
+            <span class="grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">${idx + 1}</span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-white">${escapeHtml(team.name)}</p>
+              <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" style="width: ${Math.min(100, (team.score || 0) / Math.max(1, Math.max(...rows.map((t) => t.score || 0))) * 100)}%"></div>
+              </div>
+            </div>
+            <span class="font-mono text-xs font-bold text-cyan-200">${Number(team.score || 0).toLocaleString()}</span>
+          </div>
+        `).join("");
+    }
+
+    function renderAnswerOptions(question, me = {}) {
+      const container = document.getElementById("answers-container");
+      if (!question) {
+        container.innerHTML = "";
+        return;
+      }
+
+      const qtype = question.type;
+      const options = question.options || [];
+      const locked = !!me.locked;
+
+      if (qtype === "mcq_single" || qtype === "mcq_multi") {
+        container.innerHTML = options.map((option, index) => {
+          const id = option.id || String.fromCharCode(97 + index);
+          const isSelected = qtype === "mcq_single"
+            ? selectedChoice === id
+            : selectedMulti.has(id);
+
+          return `
+            <button
+              type="button"
+              data-id="${id}"
+              ${locked ? "disabled" : ""}
+              class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
+              onclick="${locked ? "" : (qtype === "mcq_single" ? `chooseSingle('${id}')` : `toggleMulti('${id}')`)}"
+            >
+              <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
+              <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
+            </button>
+          `;
+        }).join("");
+
+        return;
+      }
+
+      if (qtype === "numeric") {
+        const value = me.answer && typeof me.answer.value !== "undefined" ? me.answer.value : "";
+        container.innerHTML = `
+          <label class="block">
+            <span class="text-xs uppercase tracking-widest text-white/40">Your answer</span>
+            <input id="answer-input" type="number" step="any" value="${escapeHtml(String(value))}" ${locked ? "disabled readonly" : ""} class="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 p-3 text-lg text-white ${locked ? "cursor-not-allowed opacity-75" : ""}" />
+          </label>
+        `;
+        return;
+      }
+
+      if (qtype === "text") {
+        const value = me.answer && typeof me.answer.value !== "undefined" ? me.answer.value : "";
+        container.innerHTML = `
+          <label class="block">
+            <span class="text-xs uppercase tracking-widest text-white/40">Your answer</span>
+            <textarea id="answer-input" rows="4" ${locked ? "disabled readonly" : ""} class="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 p-3 text-lg text-white ${locked ? "cursor-not-allowed opacity-75" : ""}">${escapeHtml(String(value))}</textarea>
+          </label>
+        `;
+      }
+    }
+
+    function chooseSingle(choiceId) {
+      selectedChoice = choiceId;
+      document.querySelectorAll(".answer-option").forEach((el) => {
+        el.classList.toggle("selected", el.dataset.id === choiceId);
       });
-      
-      // Highlight selected
-      const selected = document.getElementById('btn-' + key);
-      selected.className = "answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-cyan-300 bg-cyan-300/15 p-4 text-left transition shadow-[0_0_25px_rgba(34,211,238,0.16)]";
-      selected.firstElementChild.className = "grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-cyan-300 text-black";
-      
-      // Enable Submit
-      document.getElementById('submit-btn').disabled = false;
+      document.getElementById("submit-btn").disabled = false;
+    }
+
+    function toggleMulti(choiceId) {
+      if (selectedMulti.has(choiceId)) {
+        selectedMulti.delete(choiceId);
+      } else {
+        selectedMulti.add(choiceId);
+      }
+
+      document.querySelectorAll(".answer-option").forEach((el) => {
+        el.classList.toggle("selected", selectedMulti.has(el.dataset.id));
+      });
+
+      document.getElementById("submit-btn").disabled = selectedMulti.size === 0;
+    }
+
+    function renderState(state) {
+      const q = state?.question || null;
+      const me = state?.me || {};
+      const team = state?.team || {};
+      restoreLockedAnswerState(q, me);
+
+      if (state.phase === "live") {
+        renderAnswerOptions(q, me);
+        syncLiveTimer(state);
+
+        const submitBtn = document.getElementById("submit-btn");
+        submitBtn.disabled = !state.i_am_controller || me.locked || !canSubmitCurrentQuestion(q);
+        submitBtn.textContent = me.locked ? "Locked" : "Lock answer";
+        submitBtn.innerHTML = me.locked
+          ? "Locked"
+          : 'Lock answer <i data-lucide="arrow-right" class="size-4"></i>';
+        lucide.createIcons();
+      } else {
+        syncLiveTimer(null);
+      }
+
+      setPhase(state.phase || "idle");
+      renderLeaderboard(state.leaderboard || []);
+
+      document.getElementById("team-score").textContent = Number(team.score || 0).toLocaleString();
+      document.getElementById("team-name").textContent = team.name || "PLAYER";
+
+      document.getElementById("player-meta").textContent =
+        `Controller: ${state.i_am_controller ? "You" : (state.controller_session_id ? "Other device" : "None")} | ` +
+        `Locked: ${me.locked ? "yes" : "no"} | ` +
+        `Bounty: ${me.bounty ? "used" : "ready"} | ` +
+        `Peek: ${me.peek ? "used" : "ready"} | ` +
+        `Freeze: ${me.freeze ? "used" : "ready"}`;
+
+      const controllerBtn = document.getElementById("controller-btn");
+      const releaseBtn = document.getElementById("release-btn");
+      const bountyBtn = document.getElementById("bounty-btn");
+      const freezeBtn = document.getElementById("freeze-btn");
+      const peekBtn = document.getElementById("peek-btn");
+      const swapBtn = document.getElementById("swap-btn");
+      const swapTarget = document.getElementById("swap-target");
+
+      controllerBtn.disabled = !!state.i_am_controller;
+      controllerBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${state.i_am_controller ? "border border-emerald-300/50 bg-emerald-400/10 text-emerald-200" : "border border-cyan-300/40 bg-cyan-300/10 text-cyan-200"}`;
+      controllerBtn.textContent = state.i_am_controller ? "You are controller" : "Claim controller";
+
+      releaseBtn.disabled = !state.i_am_controller;
+      releaseBtn.className = `w-full rounded-xl px-3 py-2 text-sm ${state.i_am_controller ? "border border-white/10 bg-white/[0.03] text-white/80" : "border border-white/10 bg-slate-900/40 text-white/30 cursor-not-allowed"}`;
+
+      bountyBtn.disabled = !state.i_am_controller || state.phase !== "topic" || !!me.bounty;
+      bountyBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${bountyBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-amber-300/40 bg-amber-300/10 text-amber-200"}`;
+
+      freezeBtn.disabled = !state.i_am_controller || !!me.freeze;
+      freezeBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${freezeBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-sky-300/40 bg-sky-300/10 text-sky-200"}`;
+
+      peekBtn.disabled = !state.i_am_controller || !!me.peek;
+      peekBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${peekBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-violet-300/40 bg-violet-300/10 text-violet-200"}`;
+
+      const teams = state?.leaderboard?.filter((t) => t.id !== me.id);
+      swapTarget.innerHTML = teams.length
+        ? teams.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")
+        : "<option value=\"\">No other teams</option>";
+
+      swapBtn.disabled = !state.i_am_controller || team.swap_available === false || !!me.swap_used || !teams.length;
+      swapBtn.className = `mt-2 w-full rounded-xl px-3 py-2 font-bold ${swapBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-fuchsia-300/50 bg-fuchsia-400/10 text-fuchsia-200"}`;
+
+      if (state.phase === "closed") {
+        document.getElementById("final-score").textContent = `${Number(team.score || 0).toLocaleString()} pts`;
+      }
+
+      if (!q) {
+        document.getElementById("question-meta").textContent = "Q —";
+        document.getElementById("question-text").textContent = "No active question.";
+        document.getElementById("answers-container").innerHTML = "";
+        document.getElementById("submit-btn").disabled = true;
+        return;
+      }
+
+      document.getElementById("question-meta").textContent = `Q${q.index || ""}`;
+      document.getElementById("question-text").textContent = q.prompt || "";
+      document.getElementById("topic-title").textContent = q.topic || "Round topic";
+      document.getElementById("topic-desc").textContent = q.prompt || "A new challenge is ready.";
+
+      if (state.phase === "topic") {
+        document.getElementById("question-text").textContent = "The host has revealed the topic.";
+      }
+
+      if (state.phase === "live") {
+        renderAnswerOptions(q, me);
+        syncLiveTimer(state);
+
+        const submitBtn = document.getElementById("submit-btn");
+        submitBtn.disabled = !state.i_am_controller || me.locked || !canSubmitCurrentQuestion(q);
+        submitBtn.textContent = me.locked ? "Locked" : "Lock answer";
+        submitBtn.innerHTML = me.locked
+          ? "Locked"
+          : 'Lock answer <i data-lucide="arrow-right" class="size-4"></i>';
+        lucide.createIcons();
+      } else {
+        syncLiveTimer(null);
+      }
+    }
+
+    function canSubmitCurrentQuestion(question) {
+      if (!question) return false;
+      const type = question.type;
+      if (type === "mcq_single") return !!selectedChoice;
+      if (type === "mcq_multi") return selectedMulti.size > 0;
+      if (type === "numeric") return !!document.getElementById("answer-input")?.value;
+      if (type === "text") return !!document.getElementById("answer-input")?.value.trim();
+      return false;
+    }
+
+    async function submitAnswer() {
+      const state = gameState;
+      const q = state?.question;
+      if (!q) return;
+
+      let answer = null;
+
+      if (q.type === "mcq_single") {
+        answer = { option_id: selectedChoice };
+      } else if (q.type === "mcq_multi") {
+        answer = { option_ids: Array.from(selectedMulti).sort() };
+      } else if (q.type === "numeric") {
+        const value = document.getElementById("answer-input")?.value;
+        answer = { value: String(value) };
+      } else if (q.type === "text") {
+        const value = document.getElementById("answer-input")?.value.trim();
+        answer = { value };
+      }
+
+      if (!answer) return;
+
+      try {
+        await api("/api/v1/play/lock", {
+          method: "POST",
+          body: JSON.stringify({ answer }),
+        });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    document.getElementById("submit-btn").onclick = submitAnswer;
+
+    document.getElementById("controller-btn").onclick = async () => {
+      try {
+        await api("/api/v1/play/controller/claim", { method: "POST" });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("release-btn").onclick = async () => {
+      try {
+        await api("/api/v1/play/controller/release", { method: "POST" });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("bounty-btn").onclick = async () => {
+      try {
+        await api("/api/v1/play/bounty", { method: "POST" });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("freeze-btn").onclick = async () => {
+      try {
+        await api("/api/v1/play/freeze", { method: "POST" });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("peek-btn").onclick = async () => {
+      try {
+        await api("/api/v1/play/peek", { method: "POST" });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    document.getElementById("swap-btn").onclick = async () => {
+      const select = document.getElementById("swap-target");
+      const targetId = select.value;
+      if (!targetId) {
+        alert("Choose a team to swap with.");
+        return;
+      }
+
+      try {
+        await api("/api/v1/play/swap", {
+          method: "POST",
+          body: JSON.stringify({ target_team_id: targetId }),
+        });
+        await refreshState();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    function computeRemainingSeconds(state) {
+      const serverNow = state?.server_now ? new Date(state.server_now).getTime() : Date.now();
+      const started = state?.live_started_at ? new Date(state.live_started_at).getTime() : null;
+      const deadline = state?.me?.deadline_at ? new Date(state.me.deadline_at).getTime() : null;
+
+      if (deadline) {
+        return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
+      }
+      if (started) {
+        return Math.max(0, 150 - Math.ceil((serverNow - started) / 1000));
+      }
+      return 0;
+    }
+
+    function formatSeconds(seconds) {
+      const n = Math.max(0, Number(seconds || 0));
+      return `${n}s`;
+    }
+
+    function restoreLockedAnswerState(question, me = {}) {
+      selectedChoice = null;
+      selectedMulti = new Set();
+
+      if (!question || !me || !me.locked || !me.answer) return;
+
+      if (question.type === "mcq_single") {
+        selectedChoice = me.answer.option_id || null;
+      } else if (question.type === "mcq_multi") {
+        selectedMulti = new Set(Array.isArray(me.answer.option_ids) ? me.answer.option_ids : []);
+      }
+    }
+
+    function syncLiveTimer(state) {
+      if (!state || state.phase !== "live") {
+        if (liveTimerHandle) {
+          clearInterval(liveTimerHandle);
+          liveTimerHandle = null;
+        }
+        return;
+      }
+
+      const tick = () => {
+        const currentState = gameState;
+        if (!currentState || currentState.phase !== "live") return;
+
+        const remaining = computeRemainingSeconds(currentState);
+        const timer = document.getElementById("timer-display");
+        const bar = document.getElementById("timer-bar");
+
+        if (timer) timer.textContent = formatSeconds(remaining);
+        if (bar) {
+          const pct = Math.max(0, Math.min(100, (remaining / 150) * 100));
+          bar.style.width = `${pct}%`;
+        }
+
+        if (remaining <= 0) refreshState();
+      };
+
+      if (liveTimerHandle) clearInterval(liveTimerHandle);
+      tick();
+      liveTimerHandle = setInterval(tick, 1000);
     }
   </script>
 </body>

@@ -26,11 +26,26 @@ async function api(path, opts = {}) {
 }
 function connectWs(onMsg) {
   const a = auth();
-  if (!a) return;
+  if (!a) return null;
+
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(a.access_token)}`);
+
   ws.onmessage = (ev) => {
-    try { onMsg(JSON.parse(ev.data)); } catch {}
+    try {
+      const payload = JSON.parse(ev.data);
+      if (typeof onMsg === "function") onMsg(payload);
+    } catch (err) {
+      console.warn("WebSocket message parse failed", err);
+    }
   };
+
+  ws.onclose = () => {
+    setTimeout(() => {
+      if (!auth()) return;
+      connectWs(onMsg);
+    }, 1500);
+  };
+
   return ws;
 }
