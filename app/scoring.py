@@ -168,6 +168,10 @@ def apply_swaps_fifo(
     for src, dst in swaps:
         if src not in a or dst not in a:
             continue
+
+        if not lck.get(dst) :
+            continue
+        
         a[src], a[dst] = a[dst], a[src]
         if not lck.get(dst):
             lck[dst] = True
