@@ -1,57 +1,245 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>Player Dashboard</title>
-    <style>
-        body { font-family: sans-serif; padding: 20px; background: #111; color: #eee; }
-        #status { font-weight: bold; padding: 10px; border: 1px solid #444; }
-    </style>
+  <meta charset="utf-8" />
+  <title>Level Up — Player Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Load Lucide Icons for vanilla HTML -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Hide phases by default, manipulated via JS */
+    .phase-screen { display: none; }
+    .phase-screen.active { display: block; }
+  </style>
 </head>
-<body>
-    <h1>Player Dashboard</h1>
-    <div id="status">Status: Waiting for token...</div>
-    <p id="player-info" style="color: #888;"></p>
+<body class="min-h-screen overflow-hidden bg-[#030712] text-white selection:bg-cyan-300 selection:text-black">
+  
+  <!-- Background Effects -->
+  <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_88%_10%,rgba(217,70,239,0.1),transparent_28%)]"></div>
+  
+  <div class="relative mx-auto min-h-screen max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
     
-    <hr style="border-color: #333; margin: 20px 0;">
-    
-    <h3>Live Server Messages:</h3>
-    <pre id="messages" style="background: #000; padding: 10px; border: 1px solid #333; min-height: 100px;"></pre>
+    <!-- Header -->
+    <header class="flex flex-col gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <div class="flex items-center gap-2">
+          <i data-lucide="sparkles" class="size-4 text-lime-300"></i>
+          <span class="font-mono text-[10px] font-bold uppercase tracking-[0.34em] text-lime-300">Arena // 07</span>
+        </div>
+        <h1 class="mt-3 text-3xl font-black tracking-[-0.04em] text-white sm:text-5xl">Level<span class="text-cyan-300">Up</span> Puzzles</h1>
+        <p id="connection-status" class="mt-2 max-w-xl text-sm font-mono text-orange-400 animate-pulse">Connecting to server...</p>
+      </div>
+      <!-- Phase Indicators (Controlled by Host) -->
+      <div class="flex flex-wrap gap-2" aria-label="Current Phase">
+        <div id="indicator-idle" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Idle</div>
+        <div id="indicator-topic" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Topic</div>
+        <div id="indicator-live" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Live</div>
+        <div id="indicator-closed" class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">Closed</div>
+      </div>
+    </header>
 
-    <!-- Import your secure API and WebSocket wrappers -->
-    <script src="/static/common.js"></script>
-    <script>
-        // 1. Call the secure auth() function directly from common.js
-        const a = auth();
-        const statusEl = document.getElementById("status");
+    <div class="mt-6 grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)_260px] lg:items-start">
+      
+      <!-- LEFT: Leaderboard -->
+      <div class="order-2 lg:order-1">
+        <section class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-cyan-950/10 sm:p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="font-mono text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300">Live standings</p>
+              <h2 class="mt-2 text-xl font-bold tracking-tight text-white">Leaderboard</h2>
+            </div>
+            <i data-lucide="trophy" class="size-5 text-cyan-300"></i>
+          </div>
+          <div class="mt-5 flex flex-col gap-2" id="leaderboard-container">
+            <!-- Populated via JS, hardcoded for visual testing -->
+            <div class="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3">
+              <span class="grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">1</span>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-white">Quantum Crew</p>
+                <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                  <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" style="width: 100%"></div>
+                </div>
+              </div>
+              <span class="font-mono text-xs font-bold text-cyan-200">12,400</span>
+            </div>
+          </div>
+        </section>
+      </div>
 
-        if (!a || !a.access_token) {
-            statusEl.innerText = "Status: BLOCKED. No login token found.";
-            statusEl.style.color = "red";
-        } else {
-            statusEl.innerText = "Status: Token found. Connecting...";
-            statusEl.style.color = "orange";
+      <!-- CENTER: Main Stage -->
+      <section class="order-1 rounded-2xl border border-cyan-300/20 bg-[#07111f]/90 p-5 shadow-[0_0_70px_rgba(34,211,238,0.08)] sm:p-8 lg:order-2 lg:min-h-[590px]">
+        <div class="flex items-center justify-between border-b border-white/10 pb-4">
+          <div class="flex items-center gap-2">
+            <span class="size-2 animate-pulse rounded-full bg-lime-300 shadow-[0_0_12px_#bef264]"></span>
+            <span id="phase-label" class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-white/50">Live transmission</span>
+          </div>
+          <span class="font-mono text-xs text-white/40">Q-004 / 010</span>
+        </div>
+        
+        <div class="flex min-h-[500px] flex-col justify-center py-8">
+          
+          <!-- PHASE: IDLE -->
+          <div id="screen-idle" class="phase-screen text-center">
+            <i data-lucide="timer-reset" class="mx-auto size-10 text-cyan-300"></i>
+            <p class="mt-7 animate-pulse font-mono text-2xl font-bold tracking-[0.18em] text-cyan-200 sm:text-4xl">WAITING FOR EVENT...</p>
+            <p class="mt-4 text-sm text-white/40">The host is preparing your first challenge.</p>
+          </div>
+
+          <!-- PHASE: TOPIC -->
+          <div id="screen-topic" class="phase-screen">
+            <p class="font-mono text-xs uppercase tracking-[0.28em] text-fuchsia-300">Incoming topic</p>
+            <h2 id="topic-title" class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">The birth of<br /><span class="text-cyan-300">the internet.</span></h2>
+            <p id="topic-desc" class="mt-6 max-w-lg text-white/50">Get ready. The next round will test your knowledge.</p>
+          </div>
+
+          <!-- PHASE: LIVE -->
+          <div id="screen-live" class="phase-screen active">
+            <div class="flex items-end justify-between">
+              <div>
+                <p class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-fuchsia-300">Active Question</p>
+                <p class="mt-3 text-sm text-white/50">Make your selection</p>
+              </div>
+              <div class="text-right">
+                <p id="timer-display" class="font-mono text-3xl font-black tabular-nums text-lime-300">00:27</p>
+                <p class="font-mono text-[9px] uppercase tracking-widest text-white/40">remaining</p>
+              </div>
+            </div>
             
-            // Display the user securely parsed from the login data
-            document.getElementById("player-info").innerText = "Logged in as: " + (a.team_name || a.username);
+            <div class="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div id="timer-bar" class="h-full rounded-full bg-gradient-to-r from-lime-300 via-cyan-300 to-fuchsia-400 transition-all" style="width: 90%"></div>
+            </div>
+            
+            <h2 id="question-text" class="mt-9 text-2xl font-bold leading-tight tracking-tight text-white sm:text-4xl">Who is credited with inventing the World Wide Web?</h2>
+            
+            <div class="mt-7 grid gap-3 sm:grid-cols-2" id="answers-container">
+              <!-- Answers generated by JS -->
+              <button onclick="selectAnswer('A')" id="btn-A" class="answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]">
+                <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">A</span>
+                <span>
+                  <span class="block font-semibold text-white">Alan Turing</span>
+                </span>
+              </button>
+              <button onclick="selectAnswer('B')" id="btn-B" class="answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]">
+                <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">B</span>
+                <span><span class="block font-semibold text-white">Claude Shannon</span></span>
+              </button>
+            </div>
+            
+            <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button id="submit-btn" disabled class="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-lime-300 px-6 text-sm font-black uppercase tracking-widest text-black shadow-[0_0_28px_rgba(190,242,100,0.2)] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40">
+                Submit answer <i data-lucide="arrow-right" class="size-4"></i>
+              </button>
+            </div>
+          </div>
 
-            // 2. Use your existing WebSocket connector from common.js
-            const ws = connectWs((data) => {
-                const msgBox = document.getElementById("messages");
-                msgBox.innerText = "Received update:\n" + JSON.stringify(data, null, 2) + "\n\n" + msgBox.innerText;
-            });
+          <!-- PHASE: CLOSED -->
+          <div id="screen-closed" class="phase-screen text-center">
+            <i data-lucide="trophy" class="mx-auto size-14 text-lime-300"></i>
+            <p class="mt-7 font-mono text-xs font-bold uppercase tracking-[0.3em] text-cyan-300">Session complete</p>
+            <h2 class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">THANK YOU<br /><span class="text-fuchsia-300">FOR PLAYING!</span></h2>
+            <p class="mt-6 text-white/50">Final score: <strong id="final-score" class="text-lime-300">0 pts</strong></p>
+          </div>
 
-            if (ws) {
-                ws.onopen = () => {
-                    statusEl.innerText = "Status: CONNECTED TO SERVER!";
-                    statusEl.style.color = "#4ade80"; // Bright green
-                };
-                ws.onclose = () => {
-                    statusEl.innerText = "Status: DISCONNECTED.";
-                    statusEl.style.color = "red";
-                };
+        </div>
+      </section>
+
+      <!-- RIGHT: Side Stats -->
+      <div class="order-3">
+        <aside class="flex flex-col gap-4">
+          <section class="rounded-2xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/10 to-transparent p-5">
+            <div class="flex items-center gap-2 text-fuchsia-200">
+              <i data-lucide="shield" class="size-4"></i>
+              <span class="font-mono text-[10px] font-bold uppercase tracking-[0.25em]">Your squad</span>
+            </div>
+            <p id="team-name" class="mt-5 text-2xl font-black tracking-tight text-white">PLAYER</p>
+            <div class="mt-4 flex items-end justify-between border-t border-white/10 pt-4">
+              <div>
+                <p class="font-mono text-[10px] uppercase tracking-widest text-white/40">Current score</p>
+                <p id="team-score" class="mt-1 font-mono text-2xl font-bold text-lime-300">0</p>
+              </div>
+              <i data-lucide="flame" class="size-6 text-fuchsia-300"></i>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    // 1. Initialize Icons
+    lucide.createIcons();
+
+    // 2. Authentication Hook
+    const a = auth();
+    if (!a || !a.access_token) {
+        document.getElementById('connection-status').innerText = "Access Denied. Please Login.";
+        document.getElementById('connection-status').className = "mt-2 max-w-xl text-sm font-mono text-red-500";
+    } else {
+        document.getElementById('team-name').innerText = a.team_name || a.username;
+        
+        // 3. WebSocket Handshake (Using common.js)
+        const ws = connectWs((data) => {
+            console.log("WebSocket Data:", data);
+            
+            // Example of how to hook data to the UI:
+            if(data.type === "state_update" && data.phase) {
+               setPhase(data.phase);
             }
+        });
+
+        if (ws) {
+            ws.onopen = () => {
+                const status = document.getElementById('connection-status');
+                status.innerText = "Connected and waiting for host...";
+                status.className = "mt-2 max-w-xl text-sm font-mono text-[#4ade80]";
+            };
         }
-    </script>
+    }
+
+    // --- UI Logic Functions ---
+    let currentAnswer = null;
+
+    function setPhase(phase) {
+      // 1. Swap the main screen content
+      document.querySelectorAll('.phase-screen').forEach(el => el.classList.remove('active'));
+      const activeScreen = document.getElementById('screen-' + phase);
+      if (activeScreen) activeScreen.classList.add('active');
+      
+      document.getElementById('phase-label').innerText = phase === 'live' ? 'Live transmission' : 'Event ' + phase;
+
+      // 2. Highlight the active status badge in the header
+      const phases = ['idle', 'topic', 'live', 'closed'];
+      phases.forEach(p => {
+        const indicator = document.getElementById('indicator-' + p);
+        if (!indicator) return;
+        
+        if (p === phase) {
+          // Highlighted state (Cyan)
+          indicator.className = "min-h-10 flex items-center rounded-full border border-cyan-300 bg-cyan-300 px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-black transition";
+        } else {
+          // Dimmed state
+          indicator.className = "min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition";
+        }
+      });
+    }
+
+    function selectAnswer(key) {
+      currentAnswer = key;
+      // Reset all buttons
+      document.querySelectorAll('.answer-btn').forEach(btn => {
+        btn.className = "answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07]";
+        btn.firstElementChild.className = "grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200";
+      });
+      
+      // Highlight selected
+      const selected = document.getElementById('btn-' + key);
+      selected.className = "answer-btn flex min-h-[76px] items-center gap-4 rounded-xl border border-cyan-300 bg-cyan-300/15 p-4 text-left transition shadow-[0_0_25px_rgba(34,211,238,0.16)]";
+      selected.firstElementChild.className = "grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-cyan-300 text-black";
+      
+      // Enable Submit
+      document.getElementById('submit-btn').disabled = false;
+    }
+  </script>
 </body>
 </html>

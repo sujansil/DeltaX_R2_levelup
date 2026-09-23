@@ -127,6 +127,11 @@ def create_app() -> FastAPI:
         async def admin_page():
             return FileResponse(STATIC / "admin.html")
 
+        @app.get("/add_question.html")
+        async def add_question_page():
+            from fastapi.responses import FileResponse
+            return FileResponse("static/add_question.html")
+
     @app.middleware("http")
     async def no_store_api(request: Request, call_next):
         resp = await call_next(request)

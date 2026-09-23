@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>LevelUp — Question Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { background-color: #030712; color: #f8fafc; }
+    .input-field { background-color: #111827; border: 1px solid #374151; color: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; width: 100%; transition: border-color 0.2s; }
+    .input-field:focus { outline: none; border-color: #22d3ee; }
+    .label { font-size: 0.875rem; font-weight: 600; color: #94a3b8; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card { background-color: rgba(17, 24, 39, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 1rem; padding: 2rem; backdrop-filter: blur(10px); }
+  </style>
+</head>
+<body class="min-h-screen p-6 selection:bg-cyan-300 selection:text-black">
+  <div class="max-w-4xl mx-auto">
+    
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-3xl font-black tracking-tight text-white">Question <span class="text-cyan-300">Builder</span></h1>
+        <p class="text-sm text-gray-400 mt-1">Create and configure new challenges.</p>
+      </div>
+      <a href="/admin" class="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-white transition">
+        <i data-lucide="arrow-left" class="size-4"></i> Back to Dashboard
+      </a>
+    </div>
+
+    <div class="card shadow-2xl shadow-cyan-900/20">
+      <form id="question-form" onsubmit="createQuestion(event)">
+        
+        <!-- Metadata -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 pb-8 border-b border-white/10">
+          <div>
+            <label class="label">Question Index</label>
+            <input name="index" type="number" required placeholder="1" class="input-field" />
+          </div>
+          <div>
+            <label class="label">Topic</label>
+            <input name="topic" required placeholder="History of Computing" class="input-field" />
+          </div>
+          <div>
+            <label class="label">Question Type</label>
+            <select name="qtype" id="qtype" onchange="toggleType()" class="input-field">
+              <!-- Fixed to match backend Pydantic validation -->
+              <option value="mcq_single">Multiple Choice (Single Answer)</option>
+              <option value="numeric">Numerical</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Prompt -->
+        <div class="mb-8 pb-8 border-b border-white/10">
+          <label class="label text-cyan-300">Main Prompt</label>
+          <textarea name="prompt" rows="3" required placeholder="Enter the question text here..." class="input-field mb-4"></textarea>
+          
+          <div class="flex items-center gap-4">
+            <div class="flex-1">
+              <label class="label text-xs">Media / Image URL (Optional)</label>
+              <input name="media_url" placeholder="https://example.com/image.png" class="input-field text-sm" />
+            </div>
+            <div class="flex-1 opacity-50 cursor-not-allowed" title="Backend upload route required">
+              <label class="label text-xs">Upload File (Requires Backend Update)</label>
+              <input type="file" disabled class="input-field text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-300/10 file:text-cyan-300" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Options Builder -->
+        <div id="mcq-section" class="mb-8 pb-8 border-b border-white/10">
+          <div class="flex justify-between items-center mb-4">
+            <label class="label text-fuchsia-300 mb-0">Answer Options</label>
+            <button type="button" onclick="addOption()" class="flex items-center gap-2 text-xs font-bold text-fuchsia-300 bg-fuchsia-300/10 px-3 py-1.5 rounded-lg hover:bg-fuchsia-300/20 transition">
+              <i data-lucide="plus" class="size-3"></i> Add Option
+            </button>
+          </div>
+          
+          <div id="options-container" class="space-y-4">
+            <!-- Options injected here by JS -->
+          </div>
+        </div>
+
+        <!-- Correct Answer & Hint -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div>
+            <label class="label text-lime-300">Correct Answer Key</label>
+            <input name="answer" required placeholder="Exact text (e.g. 'A') or number (e.g. '42')" class="input-field border-lime-300/30 focus:border-lime-300" />
+            <p class="text-xs text-gray-500 mt-2">Must exactly match the intended answer.</p>
+          </div>
+          <div>
+            <label class="label">Hint (Optional)</label>
+            <input name="hint" placeholder="Provide a clue..." class="input-field" />
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" class="w-full flex items-center justify-center gap-2 bg-cyan-400 hover:bg-cyan-300 text-black font-black uppercase tracking-widest py-4 rounded-xl transition shadow-[0_0_20px_rgba(34,211,238,0.2)]">
+          <i data-lucide="server" class="size-5"></i> Save Question to Database
+        </button>
+        <p id="status-msg" class="text-center mt-4 text-sm font-mono"></p>
+
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script>
+    lucide.createIcons();
+    
+    // Check Auth
+    const a = auth();
+    if (!a || a.role !== 'admin') {
+      window.location.href = "/";
+    }
+
+    let optionCount = 0;
+
+    // Toggle MCQ vs Numeric UI
+    function toggleType() {
+      const isMcq = document.getElementById('qtype').value === 'mcq_single';
+      document.getElementById('mcq-section').style.display = isMcq ? 'block' : 'none';
+    }
+
+    // Add dynamic option row
+    function addOption() {
+      optionCount++;
+      const id = `opt-${optionCount}`;
+      const html = `
+        <div id="${id}" class="flex gap-4 items-start bg-black/20 p-4 rounded-xl border border-white/5 relative group">
+          <button type="button" onclick="document.getElementById('${id}').remove()" class="absolute -right-2 -top-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition">
+            <i data-lucide="x" class="size-3"></i>
+          </button>
+          <div class="flex-1">
+            <input type="text" class="opt-text input-field text-sm" placeholder="Option Text (e.g. Alan Turing)" required />
+          </div>
+          <div class="flex-1">
+            <input type="text" class="opt-img input-field text-sm" placeholder="Image URL (Optional)" />
+          </div>
+        </div>
+      `;
+      document.getElementById('options-container').insertAdjacentHTML('beforeend', html);
+      lucide.createIcons();
+    }
+
+    // Initialize with two options
+    addOption();
+    addOption();
+
+    // Form Submission
+    async function createQuestion(e) {
+      e.preventDefault();
+      const status = document.getElementById('status-msg');
+      status.innerText = "Processing...";
+      status.className = "text-center mt-4 text-sm font-mono text-cyan-300 animate-pulse";
+
+      const fd = new FormData(e.target);
+      const qtype = fd.get("qtype"); // 'mcq_single' or 'numeric'
+      
+      // Build options array for MCQ
+      let optionsList = null;
+      if (qtype === "mcq_single") {
+        optionsList = [];
+        document.querySelectorAll('#options-container > div').forEach(row => {
+          const text = row.querySelector('.opt-text').value;
+          const img = row.querySelector('.opt-img').value;
+          // Store as objects containing both text and optional image
+          optionsList.push({ text: text, image_url: img || null });
+        });
+      }
+
+      // Build answer key
+      const rawAnswer = fd.get("answer");
+      const answerKey = qtype === "numeric" ? { exact: parseFloat(rawAnswer) } : { exact: rawAnswer };
+
+      const payload = {
+        index: parseInt(fd.get("index")),
+        topic: fd.get("topic"),
+        qtype: qtype,
+        prompt: fd.get("prompt"),
+        media_url: fd.get("media_url") || null,
+        options: optionsList,
+        answer_key: answerKey,
+        hint: fd.get("hint") || null
+      };
+
+      try {
+        await api("/api/v1/admin/questions", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        status.innerText = "SUCCESS: Question locked in database.";
+        status.className = "text-center mt-4 text-sm font-mono text-lime-400";
+        setTimeout(() => e.target.reset(), 2000);
+      } catch (err) {
+        status.innerText = "ERROR: " + err.message;
+        status.className = "text-center mt-4 text-sm font-mono text-red-500";
+      }
+    }
+  </script>
+</body>
+</html>

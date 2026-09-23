@@ -62,6 +62,7 @@ class Question(Base):
     topic: Mapped[str] = mapped_column(String(200))
     prompt: Mapped[str] = mapped_column(Text)
     qtype: Mapped[str] = mapped_column(String(32))
+    media_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     options: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSON, nullable=True)
     answer_key: Mapped[dict[str, Any]] = mapped_column(JSON)
     hint: Mapped[str | None] = mapped_column(Text, nullable=True)
