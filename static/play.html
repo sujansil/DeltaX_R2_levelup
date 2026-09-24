@@ -163,6 +163,7 @@
     let gameState = null;
     let selectedChoice = null;
     let selectedMulti = new Set();
+    let currentQuestionId = null;
 
     let liveTimerHandle = null;
 
@@ -525,6 +526,10 @@
     };
 
     function computeRemainingSeconds(state) {
+      if (state && typeof state.time_left_sec !== "undefined") {
+        return Math.max(0, Number(state.time_left_sec || 0));
+      }
+
       const serverNow = state?.server_now ? new Date(state.server_now).getTime() : Date.now();
       const started = state?.live_started_at ? new Date(state.live_started_at).getTime() : null;
       const topicShown = state?.topic_shown_at ? new Date(state.topic_shown_at).getTime() : null;
@@ -544,26 +549,62 @@
 
     function formatSeconds(seconds) {
       const n = Math.max(0, Number(seconds || 0));
-      const mins = String(Math.floor(n / 60)).padStart(2, "0");
-      const secs = String(n % 60).padStart(2, "0");
-      return `${mins}:${secs}`;
+      return `${n}s`;
     }
 
     function restoreLockedAnswerState(question, me = {}) {
-      selectedChoice = null;
-      selectedMulti = new Set();
+      if (!question) {
+        selectedChoice = null;
+        selectedMulti = new Set();
+        currentQuestionId = null;
+        return;
+      }
 
-      if (!question || !me || !me.locked || !me.answer) return;
+      if (currentQuestionId !== null && question.id !== currentQuestionId) {
+        selectedChoice = null;
+        selectedMulti = new Set();
+      }
+      currentQuestionId = question.id;
 
-      if (question.type === "mcq_single") {
-        selectedChoice = me.answer.option_id || null;
-      } else if (question.type === "mcq_multi") {
-        selectedMulti = new Set(Array.isArray(me.answer.option_ids) ? me.answer.option_ids : []);
+      if (me && me.locked && me.answer) {
+        selectedChoice = null;
+        selectedMulti = new Set();
+
+        if (question.type === "mcq_single") {
+          selectedChoice = me.answer.option_id || null;
+        } else if (question.type === "mcq_multi") {
+          selectedMulti = new Set(Array.isArray(me.answer.option_ids) ? me.answer.option_ids : []);
+        }
+        return;
+      }
+
+      if (question.type === "mcq_single" && selectedChoice === null && me?.answer?.option_id) {
+        selectedChoice = me.answer.option_id;
+      }
+      if (question.type === "mcq_multi" && selectedMulti.size === 0 && Array.isArray(me?.answer?.option_ids)) {
+        selectedMulti = new Set(me.answer.option_ids);
+      }
+    }
+
+    function updateTimerVisuals(state) {
+      const timer = document.getElementById("timer-display");
+      const bar = document.getElementById("timer-bar");
+      const total = Number(state?.timer_total_sec || 0);
+      const remaining = computeRemainingSeconds(state);
+      const progress = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
+
+      if (timer) {
+        timer.textContent = formatSeconds(remaining);
+      }
+
+      if (bar) {
+        bar.style.width = `${progress}%`;
       }
     }
 
     function syncLiveTimer(state) {
       if (!state || (state.phase !== "topic" && state.phase !== "live")) {
+        updateTimerVisuals(null);
         if (liveTimerHandle) {
           clearInterval(liveTimerHandle);
           liveTimerHandle = null;
@@ -571,22 +612,23 @@
         return;
       }
 
+      updateTimerVisuals(state);
+
       if (liveTimerHandle) return;
 
       const tick = async () => {
         try {
           const currentState = await api("/api/v1/play/state");
+          gameState = currentState;
+
           if (!currentState || (currentState.phase !== "topic" && currentState.phase !== "live")) {
-            gameState = currentState;
             renderState(currentState);
             return;
           }
 
-          gameState = currentState;
           renderState(currentState);
 
-          const remaining = computeRemainingSeconds(currentState);
-          if (remaining <= 0) {
+          if (computeRemainingSeconds(currentState) <= 0) {
             await refreshState();
           }
         } catch (err) {

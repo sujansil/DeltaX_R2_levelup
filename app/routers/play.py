@@ -95,6 +95,20 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     view = None
     if row and q:
         view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=True)
+
+    timer_total_sec = 0
+    time_left_sec = 0
+    if rnd.phase == "topic" and rnd.topic_shown_at is not None:
+        timer_total_sec = get_settings().topic_duration_sec
+        time_left_sec = max(0, timer_total_sec - int((now - rnd.topic_shown_at).total_seconds()))
+    elif rnd.phase == "live" and rnd.live_started_at is not None:
+        timer_total_sec = get_settings().question_duration_sec
+        if row and row.deadline_at is not None:
+            deadline_utc = row.deadline_at.astimezone(timezone.utc) if row.deadline_at.tzinfo else row.deadline_at.replace(tzinfo=timezone.utc)
+            time_left_sec = max(0, int((deadline_utc - now).total_seconds()))
+        else:
+            time_left_sec = max(0, timer_total_sec - int((now - rnd.live_started_at).total_seconds()))
+
     question = None
     if q:
         question = {
@@ -110,6 +124,8 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         "server_now": now.isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
+        "timer_total_sec": timer_total_sec,
+        "time_left_sec": time_left_sec,
         "question": question,
         "team": {
             "id": str(team.id) if team else None,

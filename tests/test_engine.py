@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -22,6 +23,7 @@ from app.engine import (
 )
 from app.models import Base, Question, Team, TeamQuestion
 from app.routers.admin import api_round
+from app.routers.play import state
 from app.scoring import BOUNTY_COST
 
 
@@ -186,3 +188,27 @@ async def test_reorder_questions_updates_canonical_index_order(ctx):
     await session.refresh(q3)
 
     assert [q.index, q2.index, q3.index] == [2, 3, 1]
+
+
+async def test_player_state_shows_live_timer_contract(ctx, monkeypatch):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    row = (await session.execute(__import__("sqlalchemy").select(TeamQuestion).where(TeamQuestion.team_id == t1.id, TeamQuestion.question_id == q.id))).scalar_one()
+    row.deadline_at = datetime.now(timezone.utc) + timedelta(seconds=120)
+    await session.commit()
+
+    async def fake_get_controller(team_id):
+        return None
+
+    monkeypatch.setattr("app.routers.play.get_controller", fake_get_controller)
+
+    payload = await state(
+        session,
+        Principal(user_id=t1.id, username="alpha", role="team", team_id=t1.id, session_id="s-1"),
+    )
+
+    assert payload["phase"] == "live"
+    assert payload["timer_total_sec"] == 150
+    assert 0 < payload["time_left_sec"] <= 120
