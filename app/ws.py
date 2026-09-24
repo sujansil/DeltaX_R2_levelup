@@ -12,6 +12,22 @@ PUBLIC = "ch:public"
 ADMIN = "ch:admin"
 
 
+async def emit_admin_notice(*, kind: str, team_id: str | None = None, team_name: str | None = None, question_id: str | None = None, payload: dict | None = None, message: str | None = None) -> None:
+    await hub.broadcast(
+        ADMIN,
+        {
+            "type": "admin_notice",
+            "kind": kind,
+            "team_id": team_id,
+            "team_name": team_name,
+            "question_id": question_id,
+            "message": message,
+            "payload": payload or {},
+            "at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        },
+    )
+
+
 def team_channel(team_id: str) -> str:
     return f"ch:team:{team_id}"
 

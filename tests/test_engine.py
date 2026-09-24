@@ -4,12 +4,14 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.clock import FakeClock
+from app.deps import Principal
 from app.engine import (
     EngineError,
     activate_bounty,
     close_question,
     get_round,
     lock_answer,
+    reorder_questions,
     restart_round,
     show_topic,
     start_question,
@@ -19,6 +21,7 @@ from app.engine import (
     use_swap,
 )
 from app.models import Base, Question, Team, TeamQuestion
+from app.routers.admin import api_round
 from app.scoring import BOUNTY_COST
 
 
@@ -153,3 +156,33 @@ async def test_swap_requires_lock_and_is_once(ctx):
     # A had correct, swapped onto empty B → A gets 0, B gets A's correct at B's (unlocked→locked via swap) time 0
     assert t1.score == 5000
     assert t2.score == 5000 + 2000
+
+
+async def test_admin_round_route_handles_active_question(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    payload = await api_round(
+        session,
+        Principal(user_id=t1.id, username="admin", role="admin", team_id=None, session_id="s-1"),
+    )
+
+    assert payload["phase"] == "live"
+    assert payload["question"]["id"] == str(q.id)
+    assert payload["question"]["index"] == 1
+
+
+async def test_reorder_questions_updates_canonical_index_order(ctx):
+    session, clock, t1, t2, q = ctx
+    q2 = Question(id=uuid4(), index=2, topic="History", prompt="Who won WWII?", qtype="text", answer_key={"value": "Allies"}, hint="coalition")
+    q3 = Question(id=uuid4(), index=3, topic="Science", prompt="H2O?", qtype="text", answer_key={"value": "Water"}, hint="liquid")
+    session.add_all([q2, q3])
+    await session.commit()
+
+    await reorder_questions(session, [q3.id, q.id, q2.id], actor="admin")
+    await session.refresh(q)
+    await session.refresh(q2)
+    await session.refresh(q3)
+
+    assert [q.index, q2.index, q3.index] == [2, 3, 1]

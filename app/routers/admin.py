@@ -16,6 +16,7 @@ from app.engine import (
     get_round,
     leaderboard,
     override_grade,
+    reorder_questions,
     restart_round,
     show_topic,
     start_question,
@@ -47,6 +48,10 @@ class QuestionIn(BaseModel):
     options: Any | None = None
     answer_key: dict[str, Any]
     hint: str | None = None
+
+
+class QuestionOrderIn(BaseModel):
+    question_ids: list[UUID]
 
 
 class OverrideIn(BaseModel):
@@ -173,6 +178,21 @@ async def create_question(
     return {"id": str(q.id), "index": q.index}
 
 
+@router.post("/questions/reorder")
+async def reorder_question_sequence(
+    body: QuestionOrderIn,
+    session: AsyncSession = Depends(get_session),
+    admin: Principal = Depends(require_admin),
+):
+    try:
+        await reorder_questions(session, body.question_ids, actor=admin.username)
+        await session.commit()
+    except EngineError as e:
+        await session.rollback()
+        raise _err(e) from None
+    return {"ok": True}
+
+
 @router.put("/questions/{question_id}")
 async def update_question(
     question_id: UUID,
@@ -183,6 +203,10 @@ async def update_question(
     q = await session.get(Question, question_id)
     if q is None:
         raise HTTPException(404, "Not found")
+    if body.index != q.index:
+        dup = (await session.execute(select(Question).where(Question.index == body.index, Question.id != question_id))).scalar_one_or_none()
+        if dup is not None:
+            raise HTTPException(409, "Question index already exists")
     q.index = body.index
     q.topic = body.topic
     q.prompt = body.prompt
@@ -289,15 +313,31 @@ async def api_restart(
 @router.get("/round")
 async def api_round(session: AsyncSession = Depends(get_session), _: Principal = Depends(require_admin)):
     rnd = await get_round(session)
+    q = await session.get(Question, rnd.current_question_id) if rnd.current_question_id else None
     board = await leaderboard(session)
     matrix = None
     if rnd.current_question_id:
         matrix = await admin_question_matrix(session, rnd.current_question_id)
+    from datetime import datetime, timezone
+
     return {
         "phase": rnd.phase,
+        "server_now": datetime.now(timezone.utc).isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
         "current_question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
+        "question": (
+            {
+                "id": str(q.id),
+                "index": q.index,
+                "topic": q.topic,
+                "type": q.qtype,
+                "prompt": q.prompt if rnd.phase in ("live", "closed") else None,
+                "options": q.options if rnd.phase in ("live", "closed") else None,
+            }
+            if q
+            else None
+        ),
         "leaderboard": board,
         "matrix": matrix,
         "reveal_cards": rnd.reveal_cards,

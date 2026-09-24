@@ -268,6 +268,32 @@ async def restart_round(session: AsyncSession, actor: str, clock: Clock | None =
     return rnd
 
 
+async def reorder_questions(session: AsyncSession, ordered_ids: list[UUID], actor: str | None = None) -> list[Question]:
+    if not ordered_ids:
+        raise EngineError("bad_request", "Question order cannot be empty")
+    if len(set(ordered_ids)) != len(ordered_ids):
+        raise EngineError("bad_request", "Question order contains duplicates")
+
+    qs = (await session.execute(select(Question).where(Question.id.in_(ordered_ids)))).scalars().all()
+    ids_in_db = {q.id for q in qs}
+    if len(qs) != len(ordered_ids) or any(qid not in ids_in_db for qid in ordered_ids):
+        raise EngineError("not_found", "All ordered questions must exist")
+
+    by_id = {q.id: q for q in qs}
+    ordered_qs = [by_id[qid] for qid in ordered_ids]
+    for position, q in enumerate(ordered_qs, start=1):
+        q.index = 100_000 + position
+    await session.flush()
+
+    for position, q in enumerate(ordered_qs, start=1):
+        q.index = position
+
+    if actor is not None:
+        await audit(session, actor=actor, kind="reorder_questions", payload={"order": [str(qid) for qid in ordered_ids]})
+    await session.flush()
+    return ordered_qs
+
+
 async def activate_bounty(session: AsyncSession, team_id: UUID, actor: str, clock: Clock | None = None) -> TeamQuestion:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)

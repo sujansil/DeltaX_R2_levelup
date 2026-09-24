@@ -534,18 +534,19 @@
         return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
       }
       if (state?.phase === "topic" && topicShown) {
-        const topicDeadline = topicShown + 45000;
-        return Math.max(0, Math.ceil((topicDeadline - serverNow) / 1000));
+        return Math.max(0, 45 - Math.floor((serverNow - topicShown) / 1000));
       }
-      if (started) {
-        return Math.max(0, 150 - Math.ceil((serverNow - started) / 1000));
+      if (state?.phase === "live" && started) {
+        return Math.max(0, 150 - Math.floor((serverNow - started) / 1000));
       }
       return 0;
     }
 
     function formatSeconds(seconds) {
       const n = Math.max(0, Number(seconds || 0));
-      return `${n}s`;
+      const mins = String(Math.floor(n / 60)).padStart(2, "0");
+      const secs = String(n % 60).padStart(2, "0");
+      return `${mins}:${secs}`;
     }
 
     function restoreLockedAnswerState(question, me = {}) {
@@ -570,25 +571,29 @@
         return;
       }
 
-      const tick = () => {
-        const currentState = gameState;
-        if (!currentState || (currentState.phase !== "topic" && currentState.phase !== "live")) return;
+      if (liveTimerHandle) return;
 
-        const remaining = computeRemainingSeconds(currentState);
-        const timer = document.getElementById("timer-display");
-        const bar = document.getElementById("timer-bar");
+      const tick = async () => {
+        try {
+          const currentState = await api("/api/v1/play/state");
+          if (!currentState || (currentState.phase !== "topic" && currentState.phase !== "live")) {
+            gameState = currentState;
+            renderState(currentState);
+            return;
+          }
 
-        if (timer) timer.textContent = formatSeconds(remaining);
-        if (bar) {
-          const total = currentState.phase === "topic" ? 45 : 150;
-          const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
-          bar.style.width = `${pct}%`;
+          gameState = currentState;
+          renderState(currentState);
+
+          const remaining = computeRemainingSeconds(currentState);
+          if (remaining <= 0) {
+            await refreshState();
+          }
+        } catch (err) {
+          console.warn("Live timer refresh failed:", err);
         }
-
-        if (remaining <= 0) refreshState();
       };
 
-      if (liveTimerHandle) clearInterval(liveTimerHandle);
       tick();
       liveTimerHandle = setInterval(tick, 1000);
     }

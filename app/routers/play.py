@@ -21,7 +21,7 @@ from app.engine import (
 )
 from app.models import Question, Team, TeamQuestion
 from app.redisutil import claim_controller, get_controller, heartbeat_controller, release_controller
-from app.ws import PUBLIC, hub, team_channel
+from app.ws import PUBLIC, emit_admin_notice, hub, team_channel
 from sqlalchemy import select
 
 router = APIRouter(prefix="/api/v1/play", tags=["play"])
@@ -134,8 +134,17 @@ async def bounty(session: AsyncSession = Depends(get_session), principal: Princi
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+    team = await session.get(Team, principal.team_id)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "card", "card": "bounty"})
     await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": await leaderboard(session)})
+    await emit_admin_notice(
+        kind="bounty",
+        team_id=str(principal.team_id),
+        team_name=team.name if team else None,
+        question_id=str((await get_round(session)).current_question_id) if (await get_round(session)).current_question_id else None,
+        payload={"card": "bounty"},
+        message=f"{team.name if team else 'A team'} used Bounty",
+    )
     return {"ok": True}
 
 
@@ -148,7 +157,16 @@ async def freeze(session: AsyncSession = Depends(get_session), principal: Princi
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+    team = await session.get(Team, principal.team_id)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "card", "card": "freeze"})
+    await emit_admin_notice(
+        kind="freeze",
+        team_id=str(principal.team_id),
+        team_name=team.name if team else None,
+        question_id=str((await get_round(session)).current_question_id) if (await get_round(session)).current_question_id else None,
+        payload={"card": "freeze"},
+        message=f"{team.name if team else 'A team'} used Freeze",
+    )
     return {"ok": True}
 
 
@@ -161,7 +179,16 @@ async def peek(session: AsyncSession = Depends(get_session), principal: Principa
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+    team = await session.get(Team, principal.team_id)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "card", "card": "peek"})
+    await emit_admin_notice(
+        kind="peek",
+        team_id=str(principal.team_id),
+        team_name=team.name if team else None,
+        question_id=str((await get_round(session)).current_question_id) if (await get_round(session)).current_question_id else None,
+        payload={"card": "peek"},
+        message=f"{team.name if team else 'A team'} used Peek",
+    )
     return {"ok": True}
 
 
@@ -178,7 +205,17 @@ async def lock(
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+    team = await session.get(Team, principal.team_id)
+    rnd = await get_round(session)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "locked"})
+    await emit_admin_notice(
+        kind="lock",
+        team_id=str(principal.team_id),
+        team_name=team.name if team else None,
+        question_id=str(rnd.current_question_id) if rnd.current_question_id else None,
+        payload={"answer": body.answer, "locked": True},
+        message=f"{team.name if team else 'A team'} locked an answer",
+    )
     return {"ok": True}
 
 
@@ -195,5 +232,16 @@ async def swap(
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+    team = await session.get(Team, principal.team_id)
+    target = await session.get(Team, body.target_team_id)
+    rnd = await get_round(session)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "swap_queued"})
+    await emit_admin_notice(
+        kind="swap",
+        team_id=str(principal.team_id),
+        team_name=team.name if team else None,
+        question_id=str(rnd.current_question_id) if rnd.current_question_id else None,
+        payload={"target_team_id": str(body.target_team_id), "target_team_name": target.name if target else None},
+        message=f"{team.name if team else 'A team'} queued a swap with {target.name if target else 'another team'}",
+    )
     return {"ok": True}

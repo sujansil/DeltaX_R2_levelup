@@ -24,7 +24,11 @@
         <h1 class="text-3xl font-black tracking-tight text-white">Live <span class="text-cyan-400">Dashboard</span></h1>
         <p class="text-sm text-gray-400 mt-1">Event control and phase synchronization.</p>
       </div>
-      <div class="flex gap-4">
+      <div class="flex items-center gap-4">
+        <div class="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-right">
+          <div class="text-[10px] uppercase tracking-[0.25em] text-cyan-300">Server time</div>
+          <div id="server-time" class="font-mono text-sm font-bold text-white">--:--:--</div>
+        </div>
         <a href="/add_question.html" target="_blank" class="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold py-2 px-4 rounded-lg transition">
           <i data-lucide="layout-grid" class="size-4"></i> Question Builder
         </a>
@@ -80,9 +84,7 @@
           <button onclick="fetchQuestions()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
 
-        <div id="questions-container" class="flex-1 overflow-y-auto space-y-4 pr-2">
-          <p class="text-gray-500 text-sm text-center mt-10 animate-pulse">Loading questions...</p>
-        </div>
+        <div id="questions-container" class="flex-1 overflow-y-auto space-y-4 pr-2"></div>
       </div>
 
       <div class="card shadow-xl shadow-black/40 lg:col-span-1 flex flex-col h-[80vh]">
@@ -107,7 +109,36 @@
         </div>
       </div>
 
-      <div class="card shadow-xl shadow-black/40 lg:col-span-3 flex flex-col h-[32vh]">
+      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
+        <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-3">
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="display" class="size-5 text-violet-400"></i> Player Preview
+          </h2>
+          <span id="live-countdown" class="font-mono text-sm font-bold text-lime-300">--</span>
+        </div>
+        <div id="player-preview" class="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]"></div>
+      </div>
+
+      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
+        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="bell" class="size-5 text-amber-400"></i> Live Activity
+          </h2>
+          <button onclick="clearActivityFeed()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Clear</button>
+        </div>
+        <div id="activity-feed" class="space-y-2"></div>
+      </div>
+
+      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
+        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
+          <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="users" class="size-5 text-cyan-400"></i> Team Detail Inspector
+          </h2>
+        </div>
+        <div id="team-detail" class="space-y-3"></div>
+      </div>
+
+      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
         <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="shield-alert" class="size-5 text-amber-400"></i> Audit / Dispute Log
@@ -131,14 +162,27 @@
     let questions = [];
     let roundState = null;
     let selectedQuestionId = null;
+    let activityFeed = [];
+    let selectedTeamId = null;
+    let serverClockAnchor = null;
 
     document.addEventListener("DOMContentLoaded", async () => {
       connectWs((message) => {
-        const allowed = ["state", "admin_state", "leaderboard", "matrix", "controller", "controller_released", "locked", "swap_queued", "swap_applied", "card"];
+        const allowed = ["state", "admin_state", "leaderboard", "matrix", "controller", "controller_released", "locked", "swap_queued", "swap_applied", "card", "admin_notice"];
         if (message && allowed.includes(message.type)) {
+          if (message.type === "admin_notice") {
+            pushActivity(message);
+            showToast(message.message || `${message.kind} activity`);
+          }
           refreshAll();
         }
       });
+      setInterval(() => {
+        if (roundState?.server_now) {
+          updateServerClock(roundState.server_now);
+          renderPlayerPreview();
+        }
+      }, 1000);
       await refreshAll();
       await fetchAuditLog();
     });
@@ -164,11 +208,15 @@
 
     async function refreshAll() {
       await Promise.all([loadRound(), fetchQuestions(), fetchLeaderboard()]);
+      renderPlayerPreview();
+      renderActivityFeed();
+      renderTeamDetail();
     }
 
     async function loadRound() {
       roundState = await api("/api/v1/admin/round");
       updatePhaseUI(roundState.phase || "idle");
+      updateServerClock(roundState.server_now);
 
       const activeId = roundState.current_question_id || null;
       document.getElementById("active-question-id").textContent = activeId
@@ -176,6 +224,162 @@
         : "Active Q: None";
 
       if (activeId) selectedQuestionId = activeId;
+    }
+
+    function updateServerClock(value) {
+      const el = document.getElementById("server-time");
+      if (!el) return;
+      if (!value) {
+        el.textContent = "--:--:--";
+        return;
+      }
+      const baseMs = new Date(value).getTime();
+      if (!Number.isNaN(baseMs)) {
+        if (!serverClockAnchor || serverClockAnchor.base !== value) {
+          serverClockAnchor = { base: value, clientNow: Date.now() };
+        }
+        const displayTime = new Date(baseMs + (Date.now() - serverClockAnchor.clientNow));
+        el.textContent = displayTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+    }
+
+    function computeCurrentCountdown() {
+      if (!roundState) return "--";
+      const nowBase = roundState.server_now ? new Date(roundState.server_now).getTime() : Date.now();
+      const now = nowBase + (serverClockAnchor && serverClockAnchor.base === roundState.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
+      if (roundState.phase === "topic" && roundState.topic_shown_at) {
+        const topicDeadline = new Date(roundState.topic_shown_at).getTime() + 45000;
+        return `${Math.max(0, Math.ceil((topicDeadline - now) / 1000))}s`;
+      }
+      if (roundState.phase === "live" && roundState.live_started_at) {
+        const liveDeadline = new Date(roundState.live_started_at).getTime() + 150000;
+        return `${Math.max(0, Math.ceil((liveDeadline - now) / 1000))}s`;
+      }
+      return "--";
+    }
+
+    function renderPlayerPreview() {
+      const panel = document.getElementById("player-preview");
+      const countdownLabel = document.getElementById("live-countdown");
+      if (!panel) return;
+      countdownLabel.textContent = computeCurrentCountdown();
+
+      const q = roundState?.question || null;
+      if (!q) {
+        panel.innerHTML = '<div class="rounded-xl border border-white/10 bg-black/20 p-5 text-gray-400">No active player view yet.</div>';
+        return;
+      }
+
+      const opts = q.options && Array.isArray(q.options) ? q.options : [];
+      panel.innerHTML = `
+        <div class="rounded-xl border border-white/10 bg-black/20 p-5">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="font-mono text-[10px] uppercase tracking-[0.25em] text-cyan-300">${escapeHtml(roundState.phase || "idle")}</span>
+            <span class="font-mono text-xs text-white/50">Q${q.index || 0}</span>
+          </div>
+          <h3 class="text-2xl font-black text-white">${escapeHtml(q.topic || "Current topic")}</h3>
+          <p class="mt-3 text-sm text-gray-300">${escapeHtml(q.prompt || "Prompt not visible yet.")}</p>
+          ${opts.length ? `<div class="mt-4 space-y-2">${opts.map((opt, idx) => `<div class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-200">${String.fromCharCode(65 + idx)}. ${escapeHtml(opt.text || opt.option || opt)}</div>`).join("")}</div>` : ""}
+        </div>
+        <div class="rounded-xl border border-white/10 bg-black/20 p-5">
+          <div class="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">Player state</div>
+          <div class="mt-4 space-y-3 text-sm text-gray-200">
+            <div class="flex justify-between"><span>Phase</span><strong class="text-white">${escapeHtml(roundState.phase || "idle")}</strong></div>
+            <div class="flex justify-between"><span>Server time</span><strong class="font-mono text-cyan-300">${roundState.server_now ? new Date(roundState.server_now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "--:--:--"}</strong></div>
+            <div class="flex justify-between"><span>Countdown</span><strong class="font-mono text-lime-300">${computeCurrentCountdown()}</strong></div>
+            <div class="flex justify-between"><span>Question type</span><strong class="text-white">${escapeHtml(q.type || "—")}</strong></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTeamDetail() {
+      const teamDetail = document.getElementById("team-detail");
+      if (!teamDetail) return;
+      const matrix = roundState?.matrix;
+      if (!matrix || !matrix.teams || !matrix.teams.length) {
+        teamDetail.innerHTML = '<div class="text-sm text-gray-400">No live team detail available.</div>';
+        return;
+      }
+      const targetId = selectedTeamId || matrix.teams[0].team_id;
+      const team = matrix.teams.find((item) => item.team_id === targetId) || matrix.teams[0];
+      selectedTeamId = team.team_id;
+      const answerText = team.answer ? JSON.stringify(team.answer, null, 2) : "No answer locked";
+      teamDetail.innerHTML = `
+        <div class="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-[10px] uppercase tracking-[0.25em] text-cyan-300">Selected team</div>
+              <h3 class="mt-2 text-2xl font-black text-white">${escapeHtml(team.team_name || "Team")}</h3>
+            </div>
+            <div class="font-mono text-sm text-lime-300">${Number(team.score || 0).toLocaleString()} pts</div>
+          </div>
+          <div class="mt-4 grid gap-3 text-sm md:grid-cols-2">
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Locked</div><div class="mt-1 font-semibold text-white">${team.locked ? "Yes" : "No"}</div></div>
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Graded</div><div class="mt-1 font-semibold text-white">${team.graded ? "Yes" : "No"}</div></div>
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Bounty</div><div class="mt-1 font-semibold text-white">${team.bounty ? "Used" : "Ready"}</div></div>
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Freeze</div><div class="mt-1 font-semibold text-white">${team.freeze ? "Used" : "Ready"}</div></div>
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Peek</div><div class="mt-1 font-semibold text-white">${team.peek ? "Used" : "Ready"}</div></div>
+            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Swap</div><div class="mt-1 font-semibold text-white">${team.swap_used ? "Used" : "Ready"}</div></div>
+          </div>
+          <div class="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
+            <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400">Answer payload</div>
+            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-amber-200">${escapeHtml(answerText)}</pre>
+          </div>
+        </div>
+      `;
+    }
+
+    function pushActivity(item) {
+      activityFeed.unshift({
+        kind: item.kind || "activity",
+        message: item.message || "System event",
+        team_name: item.team_name || "System",
+        at: item.at || new Date().toISOString(),
+      });
+      activityFeed = activityFeed.slice(0, 10);
+      renderActivityFeed();
+    }
+
+    function renderActivityFeed() {
+      const feed = document.getElementById("activity-feed");
+      if (!feed) return;
+      if (!activityFeed.length) {
+        feed.innerHTML = '<div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-gray-400">No activity yet. Power-card and lock events will appear here in real time.</div>';
+        return;
+      }
+      feed.innerHTML = activityFeed.map((event) => `
+        <div class="rounded-lg border border-white/10 bg-black/20 p-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-mono text-[10px] uppercase tracking-[0.25em] text-cyan-300">${escapeHtml(event.kind)}</span>
+            <span class="text-[10px] text-gray-500">${new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+          <div class="mt-2 text-sm text-white">${escapeHtml(event.message)}</div>
+          <div class="mt-1 text-xs text-gray-400">${escapeHtml(event.team_name)}</div>
+        </div>
+      `).join("");
+    }
+
+    function clearActivityFeed() {
+      activityFeed = [];
+      renderActivityFeed();
+    }
+
+    function showToast(message) {
+      if (!message) return;
+      const container = document.getElementById("toast-container") || (() => {
+        const node = document.createElement("div");
+        node.id = "toast-container";
+        node.className = "fixed right-5 top-5 z-50 space-y-2";
+        document.body.appendChild(node);
+        return node;
+      })();
+
+      const toast = document.createElement("div");
+      toast.className = "rounded-lg border border-cyan-400/30 bg-slate-900/95 px-4 py-3 text-sm text-white shadow-2xl shadow-cyan-950/40";
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3200);
     }
 
     function updatePhaseUI(phase) {
@@ -273,12 +477,13 @@
           return;
         }
 
-        container.innerHTML = [...questions]
-          .sort((a, b) => a.index - b.index)
-          .map((q) => `
-            <div class="bg-black/20 border border-white/5 p-4 rounded-xl">
+        const sorted = [...questions].sort((a, b) => a.index - b.index);
+        container.innerHTML = sorted.map((q) => {
+          const active = roundState?.current_question_id === q.id;
+          return `
+            <div class="rounded-xl border ${active ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/5 bg-black/20"} p-4">
               <div class="flex justify-between items-start mb-2 gap-2">
-                <span class="font-mono text-xs font-bold text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded">Q${q.index} | ${escapeHtml(q.topic)}</span>
+                <span class="font-mono text-xs font-bold ${active ? "text-cyan-300 bg-cyan-400/10" : "text-cyan-400 bg-cyan-400/10"} px-2 py-1 rounded">Q${q.index} | ${escapeHtml(q.topic)}</span>
                 <span class="text-[10px] text-gray-500 uppercase tracking-wider">${escapeHtml(q.type)}</span>
               </div>
               <p class="text-sm text-white font-medium mb-3">${escapeHtml(q.prompt)}</p>
@@ -291,9 +496,12 @@
                 <button type="button" onclick="showTopicFor('${q.id}')" class="px-2 py-1 text-[11px] bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-200 rounded transition">Show Topic</button>
                 <button type="button" onclick="startRoundNow()" class="px-2 py-1 text-[11px] bg-lime-500/20 hover:bg-lime-500/30 text-lime-200 rounded transition">Start</button>
                 <button type="button" onclick="closeRoundNow()" class="px-2 py-1 text-[11px] bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded transition">Close</button>
+                <button type="button" onclick="moveQuestion('${q.id}', -1)" class="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded transition">↑</button>
+                <button type="button" onclick="moveQuestion('${q.id}', 1)" class="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded transition">↓</button>
               </div>
             </div>
-          `).join("");
+          `;
+        }).join("");
       } catch (err) {
         container.innerHTML = `<p class="text-red-400 text-xs p-4">Error loading questions. (${escapeHtml(err.message)})</p>`;
       }
@@ -340,14 +548,44 @@
         container.innerHTML = [...teams]
           .sort((a, b) => b.score - a.score)
           .map((team, index) => `
-            <tr class="hover:bg-white/5 transition">
+            <tr class="hover:bg-white/5 transition cursor-pointer" data-team-id="${team.id}" onclick="selectTeam('${team.id}')">
               <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
               <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
               <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
             </tr>
           `).join("");
+        if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
       } catch (err) {
         container.innerHTML = `<tr><td colspan="3" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
+      }
+    }
+
+    function selectTeam(teamId) {
+      selectedTeamId = teamId;
+      renderTeamDetail();
+    }
+
+    async function moveQuestion(questionId, direction) {
+      const sorted = [...questions].sort((a, b) => a.index - b.index);
+      const idx = sorted.findIndex((q) => q.id === questionId);
+      if (idx < 0) return;
+      const nextIndex = idx + direction;
+      if (nextIndex < 0 || nextIndex >= sorted.length) return;
+
+      const reordered = [...sorted];
+      const [moved] = reordered.splice(idx, 1);
+      reordered.splice(nextIndex, 0, moved);
+
+      try {
+        await api("/api/v1/admin/questions/reorder", {
+          method: "POST",
+          body: JSON.stringify({
+            question_ids: reordered.map((q) => q.id),
+          }),
+        });
+        await refreshAll();
+      } catch (err) {
+        alert(err.message);
       }
     }
 
