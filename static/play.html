@@ -667,7 +667,7 @@
         if (computeRemainingSeconds(state) <= 0) {
           timerAnimationFrame = null;
           refreshState();
-          return;
+          sreturn;
         }
 
         timerAnimationFrame = requestAnimationFrame(tick);
