@@ -74,18 +74,43 @@ def test_wrong_penalty():
     )
 
 
-def test_freeze_snapshots_decay():
-    pts = points_for_outcome(
+def test_freeze_pauses_decay_during_and_after_freeze_window():
+    # Freeze at 60s pauses the effective timer for 30s. While the freeze is active,
+    # the player is still at the 60s value.
+    assert points_for_outcome(
         locked=True,
         has_answer=True,
         correct=True,
         bounty=False,
-        freeze_elapsed_ms=90_000,  # 2000 - 20*30 = 1400
-        locked_elapsed_ms=170_000,
-        close_elapsed_ms=180_000,
+        freeze_elapsed_ms=60_000,
+        locked_elapsed_ms=75_000,
+        close_elapsed_ms=75_000,
         kingslayer=False,
-    )
-    assert pts == 1400
+    ) == 2000
+
+    # After the freeze ends, decay resumes from the 60s baseline and continues from there.
+    assert points_for_outcome(
+        locked=True,
+        has_answer=True,
+        correct=True,
+        bounty=False,
+        freeze_elapsed_ms=60_000,
+        locked_elapsed_ms=120_000,
+        close_elapsed_ms=120_000,
+        kingslayer=False,
+    ) == 1400
+
+    # By 150s, the player is still decaying from the 60s baseline after the freeze has ended.
+    assert points_for_outcome(
+        locked=True,
+        has_answer=True,
+        correct=True,
+        bounty=False,
+        freeze_elapsed_ms=60_000,
+        locked_elapsed_ms=150_000,
+        close_elapsed_ms=150_000,
+        kingslayer=False,
+    ) == 800
 
 
 def test_kingslayer_bonus():

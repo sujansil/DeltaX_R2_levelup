@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import timezone, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +25,7 @@ from app.scoring import (
     points_for_outcome,
     potential_points_ms,
     ranks_by_score,
+    scoring_elapsed_ms,
     validate_submission,
 )
 
@@ -116,6 +117,7 @@ async def show_topic(session: AsyncSession, question_id: UUID, actor: str, clock
     rnd.current_question_id = q.id
     rnd.topic_shown_at = clock.now()
     rnd.live_started_at = None
+    rnd.global_deadline_at = None
     rnd.closed_at = None
     rnd.version += 1
 
@@ -148,14 +150,14 @@ async def start_question(session: AsyncSession, actor: str, clock: Clock | None 
     now = clock.now()
     rnd.phase = "live"
     rnd.live_started_at = now
+    rnd.global_deadline_at = now + timedelta(milliseconds=QUESTION_MS)
     rnd.closed_at = None
     rnd.version += 1
     rows = (
         await session.execute(select(TeamQuestion).where(TeamQuestion.question_id == rnd.current_question_id))
     ).scalars().all()
-    from datetime import timedelta
 
-    deadline = now + timedelta(milliseconds=QUESTION_MS)
+    deadline = rnd.global_deadline_at
     for row in rows:
         row.deadline_at = deadline
     await audit(session, actor=actor, kind="start_question", question_id=rnd.current_question_id)
@@ -252,6 +254,7 @@ async def restart_round(session: AsyncSession, actor: str, clock: Clock | None =
     rnd.current_question_id = None
     rnd.topic_shown_at = None
     rnd.live_started_at = None
+    rnd.global_deadline_at = None
     rnd.closed_at = None
     rnd.reveal_cards = False
     rnd.version += 1
@@ -325,11 +328,18 @@ def _normalize_utc(value):
     return value.astimezone(timezone.utc)
 
 
-def _still_time(row: TeamQuestion, now) -> None:
-    deadline_at = _normalize_utc(row.deadline_at)
+def _still_time(rnd, row: TeamQuestion, now) -> None:
     now_utc = _normalize_utc(now)
-    if deadline_at is None or now_utc >= deadline_at:
+
+    if row.deadline_at is not None :
+        deadline_at = _normalize_utc(row.deadline_at)
+    else :
+        started_utc = _normalize_utc(rnd.live_started_at)
+        deadline_at = started_utc + timedelta(microseconds=150000)
+
+    if now_utc >= deadline_at :
         raise EngineError("time_up", "Team timer has ended")
+
 
 
 async def _tq(session: AsyncSession, team_id: UUID, question_id: UUID, *, for_update: bool) -> TeamQuestion:
@@ -350,25 +360,30 @@ async def use_freeze(session: AsyncSession, team_id: UUID, actor: str, clock: Cl
     now = clock.now()
     team = await _team_for_update(session, team_id)
     row = await _tq(session, team_id, rnd.current_question_id, for_update=True)
-    _still_time(row, now)
+    _still_time(rnd, row, now)
     if row.freeze:
         raise EngineError("already_used", "Freeze already used on this question")
     await _charge(team, FREEZE_COST)
-    from datetime import timedelta
 
     row.freeze = True
     row.freeze_elapsed_ms = _elapsed_ms(rnd.live_started_at, now)
-    if row.deadline_at is not None :
-        row.deadline_at = row.deadline_at + timedelta(milliseconds=FREEZE_BONUS_MS)
-    else :
-        row.deadline_at = rnd.live_started_at + timedelta(milliseconds=QUESTION_MS + FREEZE_BONUS_MS)
+    if row.deadline_at is None:
+        row.deadline_at = rnd.live_started_at + timedelta(milliseconds=QUESTION_MS)
+    row.deadline_at = row.deadline_at + timedelta(milliseconds=FREEZE_BONUS_MS)
+
+    if rnd.global_deadline_at is None:
+        rnd.global_deadline_at = rnd.live_started_at + timedelta(milliseconds=QUESTION_MS)
+
+    max_global_deadline = rnd.live_started_at + timedelta(milliseconds=QUESTION_MS + FREEZE_BONUS_MS)
+    proposed_global_deadline = rnd.global_deadline_at + timedelta(milliseconds=FREEZE_BONUS_MS)
+    rnd.global_deadline_at = min(proposed_global_deadline, max_global_deadline)
     await audit(
         session,
         actor=actor,
         kind="freeze",
         team_id=team_id,
         question_id=rnd.current_question_id,
-        payload={"cost": FREEZE_COST, "elapsed_ms": row.freeze_elapsed_ms},
+        payload={"cost": FREEZE_COST, "elapsed_ms": row.freeze_elapsed_ms, "global_deadline_at": rnd.global_deadline_at.isoformat()},
     )
     await session.flush()
     return row
@@ -382,7 +397,7 @@ async def use_peek(session: AsyncSession, team_id: UUID, actor: str, clock: Cloc
     now = clock.now()
     team = await _team_for_update(session, team_id)
     row = await _tq(session, team_id, rnd.current_question_id, for_update=True)
-    _still_time(row, now)
+    _still_time(rnd, row, now)
     if row.peek:
         raise EngineError("already_used", "Peek already used on this question")
     await _charge(team, PEEK_COST)
@@ -418,7 +433,7 @@ async def lock_answer(
         raise EngineError("bad_answer", err)
     now = clock.now()
     row = await _tq(session, team_id, rnd.current_question_id, for_update=True)
-    _still_time(row, now)
+    _still_time(rnd, row, now)
     if row.locked:
         raise EngineError("already_locked", "Answer already locked")
     row.answer = submitted
@@ -457,7 +472,7 @@ async def use_swap(
     if target is None:
         raise EngineError("not_found", "Target team not found", 404)
     row = await _tq(session, team_id, rnd.current_question_id, for_update=True)
-    _still_time(row, now)
+    _still_time(rnd, row, now)
     if not row.locked:
         raise EngineError("not_locked", "Lock your answer before swapping")
     if row.swap_used:
@@ -555,7 +570,8 @@ async def try_autoclose(session: AsyncSession, clock: Clock | None = None) -> bo
     rnd = await get_round(session)
     if rnd.phase != "live" or rnd.live_started_at is None:
         return False
-    max_ms = QUESTION_MS
+    deadline_at = rnd.global_deadline_at or (rnd.live_started_at + timedelta(milliseconds=QUESTION_MS))
+    max_ms = _elapsed_ms(rnd.live_started_at, deadline_at)
     if _elapsed_ms(rnd.live_started_at, clock.now()) < max_ms:
         return False
     try:
@@ -607,7 +623,15 @@ def tq_player_view(
     include_hint: bool,
 ) -> dict[str, Any]:
     elapsed = _elapsed_ms(live_started_at, now) if live_started_at else 0
-    scoring_ms = row.freeze_elapsed_ms if row.freeze else elapsed
+    scoring_ms = (
+        scoring_elapsed_ms(
+            freeze_elapsed_ms=row.freeze_elapsed_ms,
+            locked_elapsed_ms=elapsed,
+            close_elapsed_ms=elapsed,
+        )
+        if row.freeze
+        else elapsed
+    )
     return {
         "bounty": row.bounty,
         "freeze": row.freeze,

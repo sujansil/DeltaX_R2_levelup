@@ -77,6 +77,7 @@ class RoundState(Base):
     current_question_id: Mapped[Any | None] = mapped_column(Uuid, ForeignKey("questions.id"), nullable=True)
     topic_shown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     live_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    global_deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reveal_cards: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=0)

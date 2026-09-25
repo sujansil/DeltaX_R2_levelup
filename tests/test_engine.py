@@ -91,8 +91,53 @@ async def test_timeout_zero_freeze_extends_and_snapshots(ctx):
     await close_question(session, "admin", clock)
     await session.refresh(t1)
     await session.refresh(t2)
-    assert t1.score == 5000 - 750 + 1400
+    assert t1.score == 5000 - 750 + 1200
     assert t2.score == 5000
+
+
+async def test_freeze_stacks_round_deadline_for_all_teams(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    start = (await get_round(session)).live_started_at
+    clock.advance_sec(90)
+    await use_freeze(session, t1.id, "alpha", clock)
+    rnd = await get_round(session)
+    assert rnd.global_deadline_at == start + timedelta(seconds=180)
+
+    clock.advance_sec(30)
+    await use_freeze(session, t2.id, "beta", clock)
+    rnd = await get_round(session)
+    assert rnd.global_deadline_at == start + timedelta(seconds=180)
+
+    clock.advance_sec(59)
+    assert await try_autoclose(session, clock) is False
+    clock.advance_sec(1)
+    assert await try_autoclose(session, clock) is True
+
+
+async def test_freeze_keeps_player_deadline_but_caps_global_deadline(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    start = (await get_round(session)).live_started_at
+    clock.advance_sec(120)
+    await use_freeze(session, t1.id, "alpha", clock)
+    t1_row = (await session.execute(__import__("sqlalchemy").select(TeamQuestion).where(TeamQuestion.team_id == t1.id, TeamQuestion.question_id == q.id))).scalar_one()
+    assert t1_row.deadline_at == start + timedelta(seconds=180)
+
+    rnd = await get_round(session)
+    assert rnd.global_deadline_at == start + timedelta(seconds=180)
+
+    clock.advance_sec(5)
+    await use_freeze(session, t2.id, "beta", clock)
+    t2_row = (await session.execute(__import__("sqlalchemy").select(TeamQuestion).where(TeamQuestion.team_id == t2.id, TeamQuestion.question_id == q.id))).scalar_one()
+    assert t2_row.deadline_at == start + timedelta(seconds=180)
+
+    rnd = await get_round(session)
+    assert rnd.global_deadline_at == start + timedelta(seconds=180)
 
 
 async def test_cannot_lock_after_deadline(ctx):

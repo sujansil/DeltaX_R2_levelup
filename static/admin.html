@@ -100,7 +100,8 @@
             <thead class="text-xs uppercase text-gray-500 sticky top-0 bg-[#1e293b] pb-2">
               <tr>
                 <th class="py-2">Rank</th>
-                <th class="py-2">Team Name</th>
+                <th class="py-2">Team</th>
+                <th class="py-2 text-right">Timer</th>
                 <th class="py-2 text-right">Score</th>
               </tr>
             </thead>
@@ -181,6 +182,9 @@
         if (roundState?.server_now) {
           updateServerClock(roundState.server_now);
           renderPlayerPreview();
+          if (roundState.phase === "live") {
+            fetchLeaderboard();
+          }
         }
       }, 1000);
       await refreshAll();
@@ -250,6 +254,15 @@
       const now = nowBase + (serverClockAnchor && serverClockAnchor.base === roundState.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
 
       return `${Math.max(0, Math.ceil((roundState.global_deadline_ms - now) / 1000))}s`;
+    }
+
+    function formatDeadlineCountdown(deadlineAt) {
+      if (!deadlineAt) return "—";
+      const deadlineMs = new Date(deadlineAt).getTime();
+      if (Number.isNaN(deadlineMs)) return "—";
+      const nowMs = roundState?.server_now ? new Date(roundState.server_now).getTime() : Date.now();
+      const remaining = Math.max(0, Math.ceil((deadlineMs - nowMs) / 1000));
+      return `${remaining}s`;
     }
 
     function renderPlayerPreview() {
@@ -539,18 +552,24 @@
       const container = document.getElementById("leaderboard-container");
       try {
         const teams = await api("/api/v1/admin/teams");
+        const matrixTeams = new Map((roundState?.matrix?.teams || []).map((team) => [team.team_id, team]));
         container.innerHTML = [...teams]
           .sort((a, b) => b.score - a.score)
-          .map((team, index) => `
-            <tr class="hover:bg-white/5 transition cursor-pointer" data-team-id="${team.id}" onclick="selectTeam('${team.id}')">
-              <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
-              <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
-              <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
-            </tr>
-          `).join("");
+          .map((team, index) => {
+            const liveTeam = matrixTeams.get(team.id);
+            const timer = formatDeadlineCountdown(liveTeam?.deadline_at);
+            return `
+              <tr class="hover:bg-white/5 transition cursor-pointer" data-team-id="${team.id}" onclick="selectTeam('${team.id}')">
+                <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
+                <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
+                <td class="py-3 text-right font-mono ${timer === "—" ? "text-gray-500" : "text-cyan-300"}">${timer}</td>
+                <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
+              </tr>
+            `;
+          }).join("");
         if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
       } catch (err) {
-        container.innerHTML = `<tr><td colspan="3" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
+        container.innerHTML = `<tr><td colspan="4" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
       }
     }
 

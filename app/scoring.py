@@ -53,12 +53,12 @@ def potential_points_ms(elapsed_ms: int, bounty: bool) -> int:
 
 def scoring_elapsed_ms(*, freeze_elapsed_ms: int | None, locked_elapsed_ms: int | None, close_elapsed_ms: int) -> int:
     base_elapsed = locked_elapsed_ms if locked_elapsed_ms is not None else close_elapsed_ms
-    if freeze_elapsed_ms is not None:
-        if base_elapsed <= freeze_elapsed_ms +  FREEZE_BONUS_MS :
-            return freeze_elapsed_ms
-        else : 
-            return base_elapsed - FREEZE_BONUS_MS
-    return base_elapsed
+    if freeze_elapsed_ms is None:
+        return base_elapsed
+    # Freeze pauses the effective elapsed timer for the whole freeze window.
+    # Once the freeze ends, decay resumes from the snapshot value instead of
+    # remaining permanently frozen.
+    return max(freeze_elapsed_ms, base_elapsed - FREEZE_BONUS_MS)
 
 
 def points_for_outcome(

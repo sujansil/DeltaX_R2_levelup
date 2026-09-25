@@ -1,3 +1,4 @@
+import math
 from typing import Any
 from uuid import UUID
 
@@ -99,25 +100,25 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     # --- PURE MILLISECONDS LOGIC ---
     timer_total_sec = 0
     deadline_ms = None
+    time_left_sec = None
 
     if rnd.phase == "topic" and rnd.topic_shown_at is not None:
         timer_total_sec = get_settings().topic_duration_sec
-        # Ensure UTC, then convert to MS, then add the topic duration
         dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
         deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
 
     elif rnd.phase == "live" and rnd.live_started_at is not None:
         timer_total_sec = get_settings().question_duration_sec
-        
-        # If the player has a custom deadline (e.g. they used FREEZE)
         if row and row.deadline_at is not None:
             dt = row.deadline_at.replace(tzinfo=timezone.utc) if not row.deadline_at.tzinfo else row.deadline_at
             deadline_ms = int(dt.timestamp() * 1000)
-            
-        # Standard player deadline
         else:
             dt = rnd.live_started_at.replace(tzinfo=timezone.utc) if not rnd.live_started_at.tzinfo else rnd.live_started_at
             deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
+
+        if deadline_ms is not None:
+            now_ms = int(now.timestamp() * 1000)
+            time_left_sec = max(0, math.ceil((deadline_ms - now_ms) / 1000))
     # -------------------------------
 
     question = None
@@ -137,9 +138,9 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
         
-        "timer_total_sec": timer_total_sec,  # Kept so the UI Progress bar knows the 100% size
-        "deadline_ms": deadline_ms,          # The new absolute truth!
-        
+        "timer_total_sec": timer_total_sec,
+        "deadline_ms": deadline_ms,
+        "time_left_sec": time_left_sec,
         "question": question,
         "team": {
             "id": str(team.id) if team else None,
