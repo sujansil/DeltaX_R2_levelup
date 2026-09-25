@@ -1,22 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <title>Admin Dashboard — Live Game Control</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
-    body { background-color: #0f172a; color: #f8fafc; font-family: sans-serif; }
-    .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 1.5rem; }
-    input { background-color: #0f172a; border: 1px solid #334155; color: white; padding: 0.5rem; border-radius: 0.375rem; width: 100%; margin-top: 0.25rem; }
-    input:focus { outline: none; border-color: #38bdf8; }
-    label { font-size: 0.875rem; font-weight: 600; color: #94a3b8; display: block; margin-top: 0.75rem; }
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #0f172a; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: sans-serif;
+    }
+
+    .card {
+      background-color: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+    }
+
+    input {
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      color: white;
+      padding: 0.5rem;
+      border-radius: 0.375rem;
+      width: 100%;
+      margin-top: 0.25rem;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
+
+    label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #94a3b8;
+      display: block;
+      margin-top: 0.75rem;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
   </style>
 </head>
+
 <body class="p-6 selection:bg-cyan-300 selection:text-black">
   <div class="max-w-7xl mx-auto">
     <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
@@ -29,10 +74,12 @@
           <div class="text-[10px] uppercase tracking-[0.25em] text-cyan-300">Server time</div>
           <div id="server-time" class="font-mono text-sm font-bold text-white">--:--:--</div>
         </div>
-        <a href="/add_question.html" target="_blank" class="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold py-2 px-4 rounded-lg transition">
+        <a href="/add_question.html" target="_blank"
+          class="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold py-2 px-4 rounded-lg transition">
           <i data-lucide="layout-grid" class="size-4"></i> Question Builder
         </a>
-        <button onclick="logout()" class="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition">
+        <button onclick="logout()"
+          class="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition">
           <i data-lucide="log-out" class="size-4"></i> Log Out
         </button>
       </div>
@@ -43,18 +90,24 @@
         <div class="card shadow-xl shadow-black/40">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-xl font-bold text-white">Phase Control</h2>
-            <span id="current-phase" class="font-mono text-xs uppercase tracking-widest text-cyan-400 font-bold bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20">LOADING...</span>
+            <span id="current-phase"
+              class="font-mono text-xs uppercase tracking-widest text-cyan-400 font-bold bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20">LOADING...</span>
           </div>
 
           <div class="grid grid-cols-2 gap-3 mb-6">
-            <button id="btn-idle" onclick="setPhase('idle')" class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Restart</button>
-            <button id="btn-topic" onclick="setPhase('topic')" class="phase-btn bg-purple-900 hover:bg-purple-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Topic</button>
-            <button id="btn-live" onclick="setPhase('live')" class="phase-btn bg-lime-900 hover:bg-lime-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Live</button>
-            <button id="btn-closed" onclick="setPhase('closed')" class="phase-btn bg-red-900 hover:bg-red-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Closed</button>
+            <button id="btn-idle" onclick="setPhase('idle')"
+              class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Restart</button>
+            <button id="btn-topic" onclick="setPhase('topic')"
+              class="phase-btn bg-purple-900 hover:bg-purple-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Topic</button>
+            <button id="btn-live" onclick="setPhase('live')"
+              class="phase-btn bg-lime-900 hover:bg-lime-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Live</button>
+            <button id="btn-closed" onclick="setPhase('closed')"
+              class="phase-btn bg-red-900 hover:bg-red-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Closed</button>
           </div>
 
           <div class="border-t border-white/10 pt-4">
-            <button onclick="advanceSequence()" class="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-widest py-3 rounded-xl transition shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+            <button onclick="advanceSequence()"
+              class="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-widest py-3 rounded-xl transition shadow-[0_0_15px_rgba(6,182,212,0.3)]">
               Advance Sequence <i data-lucide="arrow-right-circle" class="size-5"></i>
             </button>
             <p id="active-question-id" class="text-center text-xs text-gray-500 mt-2 font-mono">Active Q: None</p>
@@ -62,15 +115,20 @@
         </div>
 
         <div class="card shadow-xl shadow-black/40">
-          <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i data-lucide="users" class="size-4 text-fuchsia-400"></i> Register Team</h2>
+          <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i data-lucide="users"
+              class="size-4 text-fuchsia-400"></i> Register Team</h2>
           <form id="team-form" onsubmit="createTeam(event)">
             <div class="grid grid-cols-2 gap-2">
               <div><label class="text-xs">Display Name</label><input name="name" required class="text-sm" /></div>
               <div><label class="text-xs">Username</label><input name="username" required class="text-sm" /></div>
-              <div><label class="text-xs">Password</label><input name="password" type="password" required class="text-sm" /></div>
-              <div><label class="text-xs">Score</label><input name="score" type="number" value="0" class="text-sm" /></div>
+              <div><label class="text-xs">Password</label><input name="password" type="password" required
+                  class="text-sm" /></div>
+              <div><label class="text-xs">Score</label><input name="score" type="number" value="0" class="text-sm" />
+              </div>
             </div>
-            <button type="submit" class="mt-4 w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-lg transition text-sm">Create Team</button>
+            <button type="submit"
+              class="mt-4 w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-lg transition text-sm">Create
+              Team</button>
           </form>
           <p id="team-status" class="mt-2 text-center text-xs font-mono"></p>
         </div>
@@ -81,7 +139,8 @@
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="database" class="size-5 text-cyan-400"></i> Database Queue
           </h2>
-          <button onclick="fetchQuestions()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
+          <button onclick="fetchQuestions()"
+            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
 
         <div id="questions-container" class="flex-1 overflow-y-auto space-y-4 pr-2"></div>
@@ -92,7 +151,8 @@
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="trophy" class="size-5 text-lime-400"></i> Live Standings
           </h2>
-          <button onclick="fetchLeaderboard()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
+          <button onclick="fetchLeaderboard()"
+            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
 
         <div class="flex-1 overflow-y-auto pr-2">
@@ -125,7 +185,8 @@
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="bell" class="size-5 text-amber-400"></i> Live Activity
           </h2>
-          <button onclick="clearActivityFeed()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Clear</button>
+          <button onclick="clearActivityFeed()"
+            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Clear</button>
         </div>
         <div id="activity-feed" class="space-y-2"></div>
       </div>
@@ -144,7 +205,8 @@
           <h2 class="text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="shield-alert" class="size-5 text-amber-400"></i> Audit / Dispute Log
           </h2>
-          <button onclick="fetchAuditLog()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
+          <button onclick="fetchAuditLog()"
+            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
         </div>
         <div id="audit-container" class="flex-1 overflow-y-auto space-y-2 pr-2"></div>
       </div>
@@ -166,6 +228,7 @@
     let activityFeed = [];
     let selectedTeamId = null;
     let serverClockAnchor = null;
+    let adminTimerFrame = null;
 
     document.addEventListener("DOMContentLoaded", async () => {
       connectWs((message) => {
@@ -178,15 +241,17 @@
           refreshAll();
         }
       });
-      setInterval(() => {
+
+      const tickAdminClock = () => {
         if (roundState?.server_now) {
           updateServerClock(roundState.server_now);
           renderPlayerPreview();
-          if (roundState.phase === "live") {
-            fetchLeaderboard();
-          }
+          refreshLeaderboardTimers();
         }
-      }, 1000);
+        adminTimerFrame = requestAnimationFrame(tickAdminClock);
+      };
+      adminTimerFrame = requestAnimationFrame(tickAdminClock);
+
       await refreshAll();
       await fetchAuditLog();
     });
@@ -249,7 +314,7 @@
 
     function computeCurrentCountdown() {
       if (!roundState || !roundState.global_deadline_ms) return "--";
-      
+
       const nowBase = roundState.server_now ? new Date(roundState.server_now).getTime() : Date.now();
       const now = nowBase + (serverClockAnchor && serverClockAnchor.base === roundState.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
 
@@ -260,9 +325,33 @@
       if (!deadlineAt) return "—";
       const deadlineMs = new Date(deadlineAt).getTime();
       if (Number.isNaN(deadlineMs)) return "—";
-      const nowMs = roundState?.server_now ? new Date(roundState.server_now).getTime() : Date.now();
+
+      const serverValue = roundState?.server_now || new Date().toISOString();
+      const serverBaseMs = new Date(serverValue).getTime();
+      if (!serverClockAnchor || serverClockAnchor.base !== serverValue) {
+        serverClockAnchor = { base: serverValue, clientNow: Date.now() };
+      }
+      const nowMs = serverBaseMs + (Date.now() - serverClockAnchor.clientNow);
       const remaining = Math.max(0, Math.ceil((deadlineMs - nowMs) / 1000));
       return `${remaining}s`;
+    }
+
+    function refreshLeaderboardTimers() {
+      const container = document.getElementById("leaderboard-container");
+      if (!container || !roundState?.matrix?.teams) return;
+
+      const liveTeams = new Map((roundState.matrix.teams || []).map((team) => [team.team_id, team]));
+      container.querySelectorAll("tr[data-team-id]").forEach((row) => {
+        const teamId = row.dataset.teamId;
+        const liveTeam = liveTeams.get(teamId);
+        const timerCell = row.querySelector("[data-role='timer']");
+        if (!timerCell) return;
+
+        const timer = formatDeadlineCountdown(liveTeam?.deadline_at);
+        timerCell.textContent = timer;
+        timerCell.classList.toggle("text-gray-500", timer === "—");
+        timerCell.classList.toggle("text-cyan-300", timer !== "—");
+      });
     }
 
     function renderPlayerPreview() {
@@ -562,11 +651,12 @@
               <tr class="hover:bg-white/5 transition cursor-pointer" data-team-id="${team.id}" onclick="selectTeam('${team.id}')">
                 <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
                 <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
-                <td class="py-3 text-right font-mono ${timer === "—" ? "text-gray-500" : "text-cyan-300"}">${timer}</td>
+                <td data-role="timer" class="py-3 text-right font-mono ${timer === "—" ? "text-gray-500" : "text-cyan-300"}">${timer}</td>
                 <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
               </tr>
             `;
           }).join("");
+        refreshLeaderboardTimers();
         if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
       } catch (err) {
         container.innerHTML = `<tr><td colspan="4" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
@@ -661,4 +751,5 @@
     }
   </script>
 </body>
+
 </html>
