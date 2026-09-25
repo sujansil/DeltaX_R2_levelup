@@ -164,8 +164,8 @@
     let selectedChoice = null;
     let selectedMulti = new Set();
     let currentQuestionId = null;
-
     let liveTimerHandle = null;
+    let serverClockAnchor = null;
 
     document.addEventListener("DOMContentLoaded", async () => {
       document.getElementById("team-name").textContent = authState.team_name || authState.username || "PLAYER";
@@ -525,27 +525,6 @@
       }
     };
 
-    function computeRemainingSeconds(state) {
-      if (state && typeof state.time_left_sec !== "undefined") {
-        return Math.max(0, Number(state.time_left_sec || 0));
-      }
-
-      const serverNow = state?.server_now ? new Date(state.server_now).getTime() : Date.now();
-      const started = state?.live_started_at ? new Date(state.live_started_at).getTime() : null;
-      const topicShown = state?.topic_shown_at ? new Date(state.topic_shown_at).getTime() : null;
-      const deadline = state?.me?.deadline_at ? new Date(state.me.deadline_at).getTime() : null;
-
-      if (deadline) {
-        return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
-      }
-      if (state?.phase === "topic" && topicShown) {
-        return Math.max(0, 45 - Math.floor((serverNow - topicShown) / 1000));
-      }
-      if (state?.phase === "live" && started) {
-        return Math.max(0, 150 - Math.floor((serverNow - started) / 1000));
-      }
-      return 0;
-    }
 
     function formatSeconds(seconds) {
       const n = Math.max(0, Number(seconds || 0));
@@ -602,43 +581,46 @@
       }
     }
 
+    function computeRemainingSeconds(state) {
+      // 1. If the server doesn't give us a deadline, show 0.
+      if (!state || !state.deadline_ms) return 0;
+
+      // 2. Sync our local clock to the server's clock (no cheating!)
+      const serverBaseMs = state.server_now ? new Date(state.server_now).getTime() : Date.now();
+      const now = serverBaseMs + (serverClockAnchor && serverClockAnchor.base === state.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
+
+      // 3. Subtract 'now' from the absolute deadline. ZERO GAME MATH.
+      return Math.max(0, Math.ceil((state.deadline_ms - now) / 1000));
+    }
+
     function syncLiveTimer(state) {
+      // 1. Clear any existing timer loops so they don't pile up
+      if (liveTimerHandle) {
+        clearInterval(liveTimerHandle);
+        liveTimerHandle = null;
+      }
+
       if (!state || (state.phase !== "topic" && state.phase !== "live")) {
         updateTimerVisuals(null);
-        if (liveTimerHandle) {
-          clearInterval(liveTimerHandle);
-          liveTimerHandle = null;
-        }
         return;
       }
 
+      // 2. Initial visual update
       updateTimerVisuals(state);
 
-      if (liveTimerHandle) return;
+      // 3. Start a PURELY VISUAL timer. It updates the screen 10 times a second for smoothness.
+      // IT NEVER HITS THE API.
+      liveTimerHandle = setInterval(() => {
+        updateTimerVisuals(state);
 
-      const tick = async () => {
-        try {
-          const currentState = await api("/api/v1/play/state");
-          gameState = currentState;
-
-          if (!currentState || (currentState.phase !== "topic" && currentState.phase !== "live")) {
-            renderState(currentState);
-            return;
-          }
-
-          renderState(currentState);
-
-          if (computeRemainingSeconds(currentState) <= 0) {
-            await refreshState();
-          }
-        } catch (err) {
-          console.warn("Live timer refresh failed:", err);
+        // If the visual timer hits 0, the round is over.
+        if (computeRemainingSeconds(state) <= 0) {
+          clearInterval(liveTimerHandle); // Stop the visual timer
+          refreshState(); // Go ask the server for the "closed" state just ONCE.
         }
-      };
-
-      tick();
-      liveTimerHandle = setInterval(tick, 1000);
+      }, 100); 
     }
+
   </script>
 </body>
 </html>

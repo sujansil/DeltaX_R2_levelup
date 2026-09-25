@@ -244,18 +244,12 @@
     }
 
     function computeCurrentCountdown() {
-      if (!roundState) return "--";
+      if (!roundState || !roundState.global_deadline_ms) return "--";
+      
       const nowBase = roundState.server_now ? new Date(roundState.server_now).getTime() : Date.now();
       const now = nowBase + (serverClockAnchor && serverClockAnchor.base === roundState.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
-      if (roundState.phase === "topic" && roundState.topic_shown_at) {
-        const topicDeadline = new Date(roundState.topic_shown_at).getTime() + 45000;
-        return `${Math.max(0, Math.ceil((topicDeadline - now) / 1000))}s`;
-      }
-      if (roundState.phase === "live" && roundState.live_started_at) {
-        const liveDeadline = new Date(roundState.live_started_at).getTime() + 150000;
-        return `${Math.max(0, Math.ceil((liveDeadline - now) / 1000))}s`;
-      }
-      return "--";
+
+      return `${Math.max(0, Math.ceil((roundState.global_deadline_ms - now) / 1000))}s`;
     }
 
     function renderPlayerPreview() {

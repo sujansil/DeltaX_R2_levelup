@@ -96,18 +96,29 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     if row and q:
         view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=True)
 
+    # --- PURE MILLISECONDS LOGIC ---
     timer_total_sec = 0
-    time_left_sec = 0
+    deadline_ms = None
+
     if rnd.phase == "topic" and rnd.topic_shown_at is not None:
         timer_total_sec = get_settings().topic_duration_sec
-        time_left_sec = max(0, timer_total_sec - int((now - rnd.topic_shown_at).total_seconds()))
+        # Ensure UTC, then convert to MS, then add the topic duration
+        dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
+        deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
+
     elif rnd.phase == "live" and rnd.live_started_at is not None:
         timer_total_sec = get_settings().question_duration_sec
+        
+        # If the player has a custom deadline (e.g. they used FREEZE)
         if row and row.deadline_at is not None:
-            deadline_utc = row.deadline_at.astimezone(timezone.utc) if row.deadline_at.tzinfo else row.deadline_at.replace(tzinfo=timezone.utc)
-            time_left_sec = max(0, int((deadline_utc - now).total_seconds()))
+            dt = row.deadline_at.replace(tzinfo=timezone.utc) if not row.deadline_at.tzinfo else row.deadline_at
+            deadline_ms = int(dt.timestamp() * 1000)
+            
+        # Standard player deadline
         else:
-            time_left_sec = max(0, timer_total_sec - int((now - rnd.live_started_at).total_seconds()))
+            dt = rnd.live_started_at.replace(tzinfo=timezone.utc) if not rnd.live_started_at.tzinfo else rnd.live_started_at
+            deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
+    # -------------------------------
 
     question = None
     if q:
@@ -119,13 +130,16 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
             "prompt": q.prompt if include_body else None,
             "options": q.options if include_body else None,
         }
+        
     return {
         "phase": rnd.phase,
         "server_now": now.isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
-        "timer_total_sec": timer_total_sec,
-        "time_left_sec": time_left_sec,
+        
+        "timer_total_sec": timer_total_sec,  # Kept so the UI Progress bar knows the 100% size
+        "deadline_ms": deadline_ms,          # The new absolute truth!
+        
         "question": question,
         "team": {
             "id": str(team.id) if team else None,
@@ -167,20 +181,40 @@ async def bounty(session: AsyncSession = Depends(get_session), principal: Princi
 @router.post("/freeze")
 async def freeze(session: AsyncSession = Depends(get_session), principal: Principal = Depends(require_team)):
     await _require_controller(principal)
+    
     try:
-        await use_freeze(session, principal.team_id, actor=principal.username)
+        row = await use_freeze(session, principal.team_id, actor=principal.username)
         await session.commit()
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+        
     team = await session.get(Team, principal.team_id)
-    await hub.broadcast(team_channel(str(principal.team_id)), {"type": "card", "card": "freeze"})
+    rnd = await get_round(session)
+    
+    # Convert the datetime directly to milliseconds!
+    deadline_ms = int(row.deadline_at.timestamp() * 1000) if row.deadline_at else None
+    
+    # Send pure milliseconds to the Player
+    await hub.broadcast(
+        team_channel(str(principal.team_id)), 
+        {
+            "type": "card", 
+            "card": "freeze",
+            "deadline_ms": deadline_ms
+        }
+    )
+    
+    # Send pure milliseconds to the Admin
     await emit_admin_notice(
         kind="freeze",
         team_id=str(principal.team_id),
         team_name=team.name if team else None,
-        question_id=str((await get_round(session)).current_question_id) if (await get_round(session)).current_question_id else None,
-        payload={"card": "freeze"},
+        question_id=str(rnd.current_question_id) if rnd.current_question_id else None,
+        payload={
+            "card": "freeze",
+            "deadline_ms": deadline_ms
+        },
         message=f"{team.name if team else 'A team'} used Freeze",
     )
     return {"ok": True}

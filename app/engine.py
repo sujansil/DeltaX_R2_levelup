@@ -358,7 +358,10 @@ async def use_freeze(session: AsyncSession, team_id: UUID, actor: str, clock: Cl
 
     row.freeze = True
     row.freeze_elapsed_ms = _elapsed_ms(rnd.live_started_at, now)
-    row.deadline_at = row.deadline_at + timedelta(milliseconds=FREEZE_BONUS_MS)  # type: ignore[operator]
+    if row.deadline_at is not None :
+        row.deadline_at = row.deadline_at + timedelta(milliseconds=FREEZE_BONUS_MS)
+    else :
+        row.deadline_at = rnd.live_started_at + timedelta(milliseconds=QUESTION_MS + FREEZE_BONUS_MS)
     await audit(
         session,
         actor=actor,

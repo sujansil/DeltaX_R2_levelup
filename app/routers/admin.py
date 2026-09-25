@@ -318,13 +318,45 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
     matrix = None
     if rnd.current_question_id:
         matrix = await admin_question_matrix(session, rnd.current_question_id)
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
+
+    global_deadline_ms = None
+
+    # everything converted to milliseconds
+    if rnd.phase == "topic" and rnd.topic_shown_at:
+        dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
+        global_deadline_ms = int(dt.timestamp() * 1000) + 45000
+
+    elif rnd.phase == "live" and rnd.live_started_at:
+        dt = rnd.live_started_at.replace(tzinfo=timezone.utc) if not rnd.live_started_at.tzinfo else rnd.live_started_at
+        global_deadline_ms = int(dt.timestamp() * 1000) + 150000
+
+        # FIXED INDENT: Only check the matrix when the phase is actually LIVE
+        if matrix and "teams" in matrix:
+            for t in matrix["teams"]:
+                team_dl = t.get("deadline_at")
+                if team_dl:
+                    team_ms = 0
+                    if isinstance(team_dl, datetime):
+                        t_dt = team_dl.replace(tzinfo=timezone.utc) if not team_dl.tzinfo else team_dl
+                        team_ms = int(t_dt.timestamp() * 1000)
+                    elif isinstance(team_dl, str):
+                        try:
+                            dl_dt = datetime.fromisoformat(team_dl.replace("Z", "+00:00"))
+                            team_ms = int(dl_dt.timestamp() * 1000)
+                        except ValueError:
+                            pass
+                    
+                    # FIXED INDENT: Safely tucked inside the 'if team_dl' block!
+                    if team_ms > global_deadline_ms:
+                        global_deadline_ms = team_ms
 
     return {
         "phase": rnd.phase,
         "server_now": datetime.now(timezone.utc).isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
+        "global_deadline_ms": global_deadline_ms,
         "current_question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
         "question": (
             {
@@ -342,7 +374,6 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
         "matrix": matrix,
         "reveal_cards": rnd.reveal_cards,
     }
-
 
 @router.post("/grade/override")
 async def api_override(

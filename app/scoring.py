@@ -52,11 +52,13 @@ def potential_points_ms(elapsed_ms: int, bounty: bool) -> int:
 
 
 def scoring_elapsed_ms(*, freeze_elapsed_ms: int | None, locked_elapsed_ms: int | None, close_elapsed_ms: int) -> int:
+    base_elapsed = locked_elapsed_ms if locked_elapsed_ms is not None else close_elapsed_ms
     if freeze_elapsed_ms is not None:
-        return freeze_elapsed_ms
-    if locked_elapsed_ms is not None:
-        return locked_elapsed_ms
-    return close_elapsed_ms
+        if base_elapsed <= freeze_elapsed_ms +  FREEZE_BONUS_MS :
+            return freeze_elapsed_ms
+        else : 
+            return base_elapsed - FREEZE_BONUS_MS
+    return base_elapsed
 
 
 def points_for_outcome(
