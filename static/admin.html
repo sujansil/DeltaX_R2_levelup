@@ -423,6 +423,33 @@
             <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-amber-200">${escapeHtml(answerText)}</pre>
           </div>
         </div>
+
+        <!-- ADMIN CONTROLS SECTION -->
+          <div class="mt-4 pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- 1. Question Grade Override -->
+            <div>
+              <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400 mb-2">Grade Override (Auto-Calculates Time)</div>
+              ${team.graded ? `
+                <div class="flex gap-2">
+                  <button onclick="overrideGrade('${team.team_id}', true)" class="flex-1 bg-lime-500/10 hover:bg-lime-500/20 text-lime-400 border border-lime-500/30 font-bold py-1.5 rounded-lg transition text-xs">Mark Correct</button>
+                  <button onclick="overrideGrade('${team.team_id}', false)" class="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold py-1.5 rounded-lg transition text-xs">Mark Incorrect</button>
+                </div>
+              ` : `
+                <div class="text-xs text-gray-500 italic mt-2">Wait until the question is closed to override.</div>
+              `}
+            </div>
+
+            <!-- 2. Manual Total Score Adjustment -->
+            <div>
+              <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400 mb-2">Hard-Set Total Score</div>
+              <div class="flex gap-2 items-center">
+                <input type="number" id="manual-score-${team.team_id}" value="${team.score || 0}" class="flex-1 text-sm bg-black/50 border border-white/20 rounded px-2 py-1.5 text-white" />
+                <button onclick="setManualScore('${team.team_id}')" class="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold px-4 py-1.5 rounded-lg transition text-xs">Save</button>
+              </div>
+            </div>
+
+          </div>
       `;
     }
 
@@ -749,6 +776,59 @@
       clearAuth();
       window.location.href = "/";
     }
+
+
+    async function overrideGrade(teamId, isCorrect) {
+      const qid = roundState?.current_question_id || selectedQuestionId;
+      if (!qid) {
+        alert("No active question to override.");
+        return;
+      }
+
+      const confirmMsg = `Recalculate this team's answer as ${isCorrect ? 'CORRECT' : 'INCORRECT'}? The engine will auto-calculate time decay based on when they locked in.`;
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        await api("/api/v1/admin/grade/override", {
+          method: "POST",
+          body: JSON.stringify({
+            team_id: teamId,
+            question_id: qid,
+            correct: isCorrect
+          }),
+        });
+        
+        showToast(`Grade successfully recalculated as ${isCorrect ? 'Correct' : 'Incorrect'}`);
+        await refreshAll();
+      } catch (err) {
+        alert("Failed to override grade: " + err.message);
+      }
+    }
+
+    async function setManualScore(teamId) {
+      const input = document.getElementById(`manual-score-${teamId}`);
+      const newScore = parseInt(input.value, 10);
+      
+      if (isNaN(newScore)) {
+        alert("Please enter a valid number.");
+        return;
+      }
+
+      if (!confirm(`Are you sure you want to forcibly set this team's total score to ${newScore} pts?`)) return;
+
+      try {
+        await api(`/api/v1/admin/teams/${teamId}/score`, {
+          method: "PATCH",
+          body: JSON.stringify({ score: newScore })
+        });
+        
+        showToast(`Total score manually updated to ${newScore}`);
+        await refreshAll();
+      } catch (err) {
+        alert("Failed to update score: " + err.message);
+      }
+    }
+
   </script>
 </body>
 
