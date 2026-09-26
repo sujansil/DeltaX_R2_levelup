@@ -119,16 +119,6 @@ def grade_answer(question_type: str, answer_key: dict[str, Any], submitted: dict
         got = {str(x) for x in (submitted.get("option_ids") or [])}
         want = {str(x) for x in (answer_key.get("option_ids") or [])}
         return got == want and len(want) > 0
-    if question_type == "numeric":
-        try:
-            got = Decimal(str(submitted.get("value", "")).strip())
-            want = Decimal(str(answer_key.get("value", "")).strip())
-        except (InvalidOperation, TypeError, ValueError):
-            return False
-        tol = Decimal(str(answer_key.get("tolerance", "0") or "0"))
-        return abs(got - want) <= tol
-    if question_type == "text":
-        return _norm_text(str(submitted.get("value", ""))) == _norm_text(str(answer_key.get("value", "")))
     return False
 
 
@@ -142,16 +132,7 @@ def validate_submission(question_type: str, submitted: dict[str, Any]) -> str | 
         if not isinstance(ids, list) or not ids:
             return "option_ids required"
         return None
-    if question_type in ("numeric", "text"):
-        if submitted.get("value") is None or str(submitted.get("value")).strip() == "":
-            return "value required"
-        if question_type == "numeric":
-            try:
-                Decimal(str(submitted.get("value")).strip())
-            except (InvalidOperation, TypeError, ValueError):
-                return "numeric value required"
-        return None
-    return "unknown question type"
+    return "question type not supported; only mcq_single and mcq_multi are allowed"
 
 
 def apply_swaps_fifo(

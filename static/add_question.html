@@ -1,23 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8" />
   <title>LevelUp — Question Builder</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
-    body { background-color: #030712; color: #f8fafc; }
-    .input-field { background-color: #111827; border: 1px solid #374151; color: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; width: 100%; transition: border-color 0.2s; }
-    .input-field:focus { outline: none; border-color: #22d3ee; }
-    .label { font-size: 0.875rem; font-weight: 600; color: #94a3b8; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
-    .card { background-color: rgba(17, 24, 39, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 1rem; padding: 2rem; backdrop-filter: blur(10px); }
+    body {
+      background-color: #030712;
+      color: #f8fafc;
+    }
+
+    .input-field {
+      background-color: #111827;
+      border: 1px solid #374151;
+      color: #f8fafc;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      width: 100%;
+      transition: border-color 0.2s;
+    }
+
+    .input-field:focus {
+      outline: none;
+      border-color: #22d3ee;
+    }
+
+    .label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #94a3b8;
+      display: block;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .card {
+      background-color: rgba(17, 24, 39, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1rem;
+      padding: 2rem;
+      backdrop-filter: blur(10px);
+    }
   </style>
 </head>
+
 <body class="min-h-screen p-6 selection:bg-cyan-300 selection:text-black">
   <div class="max-w-4xl mx-auto">
     <div class="flex items-center justify-between mb-8">
       <div>
-        <h1 class="text-3xl font-black tracking-tight text-white">Question <span class="text-cyan-300">Builder</span></h1>
+        <h1 class="text-3xl font-black tracking-tight text-white">Question <span class="text-cyan-300">Builder</span>
+        </h1>
         <p class="text-sm text-gray-400 mt-1">Create and configure new challenges.</p>
       </div>
       <a href="/admin" class="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-white transition">
@@ -41,21 +76,21 @@
             <select name="qtype" id="qtype" onchange="toggleType()" class="input-field">
               <option value="mcq_single">Multiple Choice (Single Answer)</option>
               <option value="mcq_multi">Multiple Choice (Multi Answer)</option>
-              <option value="numeric">Numeric</option>
-              <option value="text">Text</option>
             </select>
           </div>
         </div>
 
         <div class="mb-8 pb-8 border-b border-white/10">
           <label class="label text-cyan-300">Main Prompt</label>
-          <textarea name="prompt" rows="3" required placeholder="Enter the question text here..." class="input-field mb-4"></textarea>
+          <textarea name="prompt" rows="3" required placeholder="Enter the question text here..."
+            class="input-field mb-4"></textarea>
         </div>
 
         <div id="mcq-section" class="mb-8 pb-8 border-b border-white/10">
           <div class="flex justify-between items-center mb-4">
             <label class="label text-fuchsia-300 mb-0">Answer Options</label>
-            <button type="button" onclick="addOption()" class="flex items-center gap-2 text-xs font-bold text-fuchsia-300 bg-fuchsia-300/10 px-3 py-1.5 rounded-lg hover:bg-fuchsia-300/20 transition">
+            <button type="button" onclick="addOption()"
+              class="flex items-center gap-2 text-xs font-bold text-fuchsia-300 bg-fuchsia-300/10 px-3 py-1.5 rounded-lg hover:bg-fuchsia-300/20 transition">
               <i data-lucide="plus" class="size-3"></i> Add Option
             </button>
           </div>
@@ -66,8 +101,10 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div>
             <label class="label text-lime-300">Correct Answer Key</label>
-            <input name="answer" required placeholder="Example: b, or 42, or Texas Instruments" class="input-field border-lime-300/30 focus:border-lime-300" />
-            <p class="text-xs text-gray-500 mt-2">For MCQ, use option ids like a, b, c. For multi-answer MCQ, use comma-separated ids such as b, c.</p>
+            <input name="answer" required placeholder="Example: b, or 42, or Texas Instruments"
+              class="input-field border-lime-300/30 focus:border-lime-300" />
+            <p class="text-xs text-gray-500 mt-2">For MCQ, use option ids like a, b, c. For multi-answer MCQ, use
+              comma-separated ids such as b, c.</p>
           </div>
           <div>
             <label class="label">Hint (Optional)</label>
@@ -75,7 +112,8 @@
           </div>
         </div>
 
-        <button type="submit" class="w-full flex items-center justify-center gap-2 bg-cyan-400 hover:bg-cyan-300 text-black font-black uppercase tracking-widest py-4 rounded-xl transition shadow-[0_0_20px_rgba(34,211,238,0.2)]">
+        <button type="submit"
+          class="w-full flex items-center justify-center gap-2 bg-cyan-400 hover:bg-cyan-300 text-black font-black uppercase tracking-widest py-4 rounded-xl transition shadow-[0_0_20px_rgba(34,211,238,0.2)]">
           <i data-lucide="server" class="size-5"></i> Save Question to Database
         </button>
         <p id="status-msg" class="text-center mt-4 text-sm font-mono"></p>
@@ -164,10 +202,10 @@
             option_ids: answerRaw.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
           };
         }
-      } else if (qtype === "numeric") {
-        answerKey = { value: answerRaw, tolerance: "0" };
       } else {
-        answerKey = { value: answerRaw };
+        status.textContent = "Unsupported question type: only MCQ is allowed.";
+        status.className = "text-center mt-4 text-sm font-mono text-red-500";
+        return;
       }
 
       const payload = {
@@ -201,4 +239,5 @@
     }
   </script>
 </body>
+
 </html>

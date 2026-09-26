@@ -44,7 +44,7 @@ class QuestionIn(BaseModel):
     index: int = Field(ge=1, le=99)
     topic: str
     prompt: str
-    qtype: str = Field(pattern="^(mcq_single|mcq_multi|numeric|text)$")
+    qtype: str = Field(pattern="^(mcq_single|mcq_multi)$")
     options: Any | None = None
     answer_key: dict[str, Any]
     hint: str | None = None

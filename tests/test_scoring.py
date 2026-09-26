@@ -178,14 +178,11 @@ def test_kingslayer_schedule_and_bottom_half_ties():
     assert is_bottom_half(r["low1"], 16)
 
 
-def test_grade_types():
+def test_grade_mcq_types():
     assert grade_answer("mcq_single", {"option_id": "b"}, {"option_id": "b"})
     assert not grade_answer("mcq_single", {"option_id": "b"}, {"option_id": "a"})
     assert grade_answer("mcq_multi", {"option_ids": ["b", "c"]}, {"option_ids": ["c", "b"]})
     assert not grade_answer("mcq_multi", {"option_ids": ["b", "c"]}, {"option_ids": ["b"]})
-    assert grade_answer("numeric", {"value": "3.14", "tolerance": "0.01"}, {"value": "3.141"})
-    assert not grade_answer("numeric", {"value": "3.14", "tolerance": "0"}, {"value": "3.141"})
-    assert grade_answer("text", {"value": "Texas Instruments"}, {"value": "  texas   instruments "})
 
 
 def test_swap_fifo_and_empty_target():

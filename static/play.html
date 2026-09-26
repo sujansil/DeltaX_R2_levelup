@@ -333,50 +333,34 @@
       const options = question.options || [];
       const locked = !!me.locked;
 
-      if (qtype === "mcq_single" || qtype === "mcq_multi") {
-        container.innerHTML = options.map((option, index) => {
-          const id = option.id || String.fromCharCode(97 + index);
-          const isSelected = qtype === "mcq_single"
-            ? selectedChoice === id
-            : selectedMulti.has(id);
-
-          return `
-            <button
-              type="button"
-              data-id="${id}"
-              ${locked ? "disabled" : ""}
-              class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
-              onclick="${locked ? "" : (qtype === "mcq_single" ? `chooseSingle('${id}')` : `toggleMulti('${id}')`)}"
-            >
-              <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
-              <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
-            </button>
-          `;
-        }).join("");
-
-        return;
-      }
-
-      if (qtype === "numeric") {
-        const value = me.answer && typeof me.answer.value !== "undefined" ? me.answer.value : "";
+      if (!['mcq_single', 'mcq_multi'].includes(qtype)) {
         container.innerHTML = `
-          <label class="block">
-            <span class="text-xs uppercase tracking-widest text-white/40">Your answer</span>
-            <input id="answer-input" type="number" step="any" value="${escapeHtml(String(value))}" ${locked ? "disabled readonly" : ""} class="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 p-3 text-lg text-white ${locked ? "cursor-not-allowed opacity-75" : ""}" />
-          </label>
+          <div class="rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-100">
+            This game mode only supports MCQ questions.
+          </div>
         `;
         return;
       }
 
-      if (qtype === "text") {
-        const value = me.answer && typeof me.answer.value !== "undefined" ? me.answer.value : "";
-        container.innerHTML = `
-          <label class="block">
-            <span class="text-xs uppercase tracking-widest text-white/40">Your answer</span>
-            <textarea id="answer-input" rows="4" ${locked ? "disabled readonly" : ""} class="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 p-3 text-lg text-white ${locked ? "cursor-not-allowed opacity-75" : ""}">${escapeHtml(String(value))}</textarea>
-          </label>
+      container.innerHTML = options.map((option, index) => {
+        const id = option.id || String.fromCharCode(97 + index);
+        const isSelected = qtype === "mcq_single"
+          ? selectedChoice === id
+          : selectedMulti.has(id);
+
+        return `
+          <button
+            type="button"
+            data-id="${id}"
+            ${locked ? "disabled" : ""}
+            class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
+            onclick="${locked ? "" : (qtype === "mcq_single" ? `chooseSingle('${id}')` : `toggleMulti('${id}')`)}"
+          >
+            <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
+            <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
+          </button>
         `;
-      }
+      }).join("");
     }
 
     function chooseSingle(choiceId) {
@@ -498,8 +482,6 @@
       const type = question.type;
       if (type === "mcq_single") return !!selectedChoice;
       if (type === "mcq_multi") return selectedMulti.size > 0;
-      if (type === "numeric") return !!document.getElementById("answer-input")?.value;
-      if (type === "text") return !!document.getElementById("answer-input")?.value.trim();
       return false;
     }
 
@@ -514,12 +496,6 @@
         answer = { option_id: selectedChoice };
       } else if (q.type === "mcq_multi") {
         answer = { option_ids: Array.from(selectedMulti).sort() };
-      } else if (q.type === "numeric") {
-        const value = document.getElementById("answer-input")?.value;
-        answer = { value: String(value) };
-      } else if (q.type === "text") {
-        const value = document.getElementById("answer-input")?.value.trim();
-        answer = { value };
       }
 
       if (!answer) return;

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.clock import FakeClock
@@ -22,7 +23,7 @@ from app.engine import (
     use_swap,
 )
 from app.models import Base, Question, Team, TeamQuestion
-from app.routers.admin import api_round
+from app.routers.admin import QuestionIn, api_round
 from app.routers.play import _require_controller, release, state
 from app.scoring import BOUNTY_COST
 
@@ -51,6 +52,12 @@ async def ctx():
         await session.commit()
         yield session, clock, t1, t2, q
     await eng.dispose()
+
+
+def test_question_type_restricts_to_mcq():
+    QuestionIn(index=1, topic="Math", prompt="1+1?", qtype="mcq_single", answer_key={"option_id": "b"})
+    with pytest.raises(ValidationError):
+        QuestionIn(index=1, topic="Math", prompt="1+1?", qtype="numeric", answer_key={"value": "2"})
 
 
 async def test_bounty_only_during_topic_and_lock_once(ctx):
