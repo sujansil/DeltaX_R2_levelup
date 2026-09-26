@@ -41,9 +41,14 @@ def _err(e: EngineError) -> HTTPException:
 
 
 async def _require_controller(principal: Principal) -> None:
-    current = await get_controller(str(principal.team_id))
+    team_id = str(principal.team_id)
+    current = await get_controller(team_id)
     if current != principal.session_id:
         raise HTTPException(403, {"code": "not_controller", "message": "This device is view-only. Claim controller first."})
+
+    ok = await heartbeat_controller(team_id, principal.session_id, get_settings().controller_ttl_sec)
+    if not ok:
+        raise HTTPException(409, {"code": "not_controller", "message": "Lost controller"})
 
 
 @router.post("/controller/claim")
@@ -69,7 +74,9 @@ async def beat(principal: Principal = Depends(require_team)):
 
 @router.post("/controller/release")
 async def release(principal: Principal = Depends(require_team)):
-    await release_controller(str(principal.team_id), principal.session_id)
+    ok = await release_controller(str(principal.team_id), principal.session_id)
+    if not ok:
+        raise HTTPException(409, {"code": "not_controller", "message": "This device is not the current controller"})
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "controller_released"})
     return {"ok": True}
 
@@ -93,6 +100,8 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     now = datetime.now(timezone.utc)
     include_body = rnd.phase in ("live", "closed")
     ctrl = await get_controller(str(principal.team_id))
+    if ctrl == principal.session_id:
+        await heartbeat_controller(str(principal.team_id), principal.session_id, get_settings().controller_ttl_sec)
     view = None
     if row and q:
         view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=True)

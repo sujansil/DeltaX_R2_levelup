@@ -215,6 +215,7 @@
     let liveTimerHandle = null;
     let serverClockAnchor = null;
     let timerAnimationFrame = null;
+    let controllerHeartbeatHandle = null;
 
     document.addEventListener("DOMContentLoaded", async () => {
       document.getElementById("team-name").textContent = authState.team_name || authState.username || "PLAYER";
@@ -239,6 +240,30 @@
     async function refreshState() {
       gameState = await api("/api/v1/play/state");
       renderState(gameState);
+      syncControllerHeartbeat(gameState);
+    }
+
+    function syncControllerHeartbeat(state) {
+      if (controllerHeartbeatHandle) {
+        clearInterval(controllerHeartbeatHandle);
+        controllerHeartbeatHandle = null;
+      }
+
+      if (!state?.i_am_controller) {
+        return;
+      }
+
+      controllerHeartbeatHandle = setInterval(async () => {
+        try {
+          await api("/api/v1/play/controller/heartbeat", { method: "POST" });
+        } catch (err) {
+          try {
+            await refreshState();
+          } catch (_) {
+            // The UI will re-render from the next successful state update.
+          }
+        }
+      }, 25000);
     }
 
     function escapeHtml(value) {
@@ -401,6 +426,8 @@
         `Bounty: ${me.bounty ? "used" : "ready"} | ` +
         `Peek: ${me.peek ? "used" : "ready"} | ` +
         `Freeze: ${me.freeze ? "used" : "ready"}`;
+
+      syncControllerHeartbeat(state);
 
       const controllerBtn = document.getElementById("controller-btn");
       const releaseBtn = document.getElementById("release-btn");

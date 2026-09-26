@@ -23,7 +23,7 @@ from app.engine import (
 )
 from app.models import Base, Question, Team, TeamQuestion
 from app.routers.admin import api_round
-from app.routers.play import state
+from app.routers.play import _require_controller, release, state
 from app.scoring import BOUNTY_COST
 
 
@@ -218,6 +218,81 @@ async def test_admin_round_route_handles_active_question(ctx):
     assert payload["phase"] == "live"
     assert payload["question"]["id"] == str(q.id)
     assert payload["question"]["index"] == 1
+
+
+async def test_release_route_refuses_wrong_session_without_broadcast(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.store = {"ctrl:team-1": "sess-owner"}
+
+        async def get(self, key):
+            return self.store.get(key)
+
+        async def delete(self, key):
+            self.store.pop(key, None)
+
+    fake_redis = FakeRedis()
+
+    async def fake_get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.redisutil.get_redis", fake_get_redis)
+
+    broadcast_calls = []
+
+    async def fake_broadcast(channel, payload):
+        broadcast_calls.append((channel, payload))
+
+    monkeypatch.setattr("app.routers.play.hub.broadcast", fake_broadcast)
+
+    principal = Principal(
+        user_id=uuid4(),
+        username="alpha",
+        role="team",
+        team_id=uuid4(),
+        session_id="sess-other",
+    )
+
+    with pytest.raises(Exception):
+        await release(principal=principal)
+
+    assert broadcast_calls == []
+
+
+async def test_require_controller_renews_lease_for_active_session(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.store = {"ctrl:team-1": "sess-owner"}
+
+        async def get(self, key):
+            return self.store.get(key)
+
+    fake_redis = FakeRedis()
+
+    async def fake_get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.redisutil.get_redis", fake_get_redis)
+
+    calls = []
+
+    async def fake_heartbeat(team_id, session_id, ttl):
+        calls.append((team_id, session_id, ttl))
+        return True
+
+    monkeypatch.setattr("app.routers.play.heartbeat_controller", fake_heartbeat)
+
+    principal = Principal(
+        user_id=uuid4(),
+        username="alpha",
+        role="team",
+        team_id=uuid4(),
+        session_id="sess-owner",
+    )
+
+    await _require_controller(principal)
+
+    assert calls == [(str(principal.team_id), principal.session_id, 120)]
 
 
 async def test_reorder_questions_updates_canonical_index_order(ctx):
