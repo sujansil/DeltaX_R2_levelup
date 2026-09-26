@@ -8,7 +8,7 @@ Server-authoritative quiz engine for 16 teams and 250+ concurrent viewers (one s
 - **Timeout / never lock = 0** (no penalty). Card costs already spent still stay spent.
 - **Lock is explicit and one-shot.** Wrong lock = −500 (−1500 with Bounty).
 - **Scoring:** 2000 for 60s, then −20/s until 135s, floor 500.
-- **Bounty** (during topic only, −2000): 6000 / −1500 / 150 pts/s / min 1500. Once per question.
+- **Bounty** (during topic only, −2000): 6000 / −1500 / 60pts/s / min 1500. Once per question.
 - **Freeze** (−750, once per question, anytime before that team’s timer ends): snapshots the current point value (decay stops) and **+30s** on that team’s deadline.
 - **Peek** (−750, once per question): shows that question’s hint. Other teams never see it.
 - **Swap** (free, **once for the whole round**): after you locked, before your timer ends, vs any team. Applied at question close, FIFO. Target is notified **after the question ends**.
