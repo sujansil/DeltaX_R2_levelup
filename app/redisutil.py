@@ -76,3 +76,15 @@ async def publish(channel: str, payload: dict[str, Any]) -> None:
 async def acquire_lock(name: str, ttl_sec: int = 5) -> bool:
     r = await get_redis()
     return bool(await r.set(f"lock:{name}", "1", ex=ttl_sec, nx=True))
+
+
+async def set_frozen_leaderboard(payload: list[dict[str, Any]]) -> None:
+    r = await get_redis()
+    await r.set("frozen_leaderboard", json.dumps(payload))
+
+async def get_frozen_leaderboard() -> list[dict[str, Any]] | None:
+    r = await get_redis()
+    data = await r.get("frozen_leaderboard")
+    if data:
+        return json.loads(data)
+    return None

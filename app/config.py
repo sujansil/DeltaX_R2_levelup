@@ -7,12 +7,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "dev"
-    secret_key: str = "dev-only-not-for-production"
+    secret_key: str
     access_token_expire_hours: int = 16
-    database_url: str = "postgresql+asyncpg://levelup:levelup@localhost:5432/levelup"
+    database_url: str
     redis_url: str = "redis://localhost:6379/0"
     admin_username: str = "admin"
-    admin_password: str = "change-me"
+    admin_password: str
     initial_team_score: int = 0
     cors_origins: str = "http://localhost:8000"
 

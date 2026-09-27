@@ -67,10 +67,19 @@ def _err(e: EngineError) -> HTTPException:
 async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> None:
     from app.engine import get_round as gr
     from app.models import Question as Q
+    from app.redisutil import get_frozen_leaderboard
 
     rnd = await gr(session)
-    board = await leaderboard(session)
+    live_board = await leaderboard(session)
+    
+    # Try to get the frozen board, fallback to live if it's the very first run
+    frozen_board = await get_frozen_leaderboard()
+    if frozen_board is None:
+        frozen_board = live_board
+
     q = await session.get(Q, rnd.current_question_id) if rnd.current_question_id else None
+    
+    # PUBLIC gets the FROZEN leaderboard
     public = {
         "type": "state",
         "phase": rnd.phase,
@@ -89,23 +98,28 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
             if q
             else None
         ),
-        "leaderboard": board,
+        "leaderboard": frozen_board, 
     }
     from datetime import datetime, timezone
 
     public["server_now"] = datetime.now(timezone.utc).isoformat()
     await hub.broadcast(PUBLIC, public)
+    
+    # ADMIN payload gets the LIVE leaderboard so you can monitor point spending in real-time
     admin_payload = dict(public)
     admin_payload["type"] = "admin_state"
+    admin_payload["leaderboard"] = live_board 
     if extra_admin:
         admin_payload.update(extra_admin)
+        
     await hub.broadcast(ADMIN, admin_payload)
+    
     if q:
         matrix = await admin_question_matrix(session, q.id)
         await hub.broadcast(ADMIN, {"type": "matrix", "matrix": matrix})
-        for t in board:
-            await hub.broadcast(team_channel(t["id"]), {"type": "state_tick", "phase": rnd.phase, "leaderboard": board})
-
+        for t in live_board:
+            # Tell teams to update, but only give them the frozen board
+            await hub.broadcast(team_channel(t["id"]), {"type": "state_tick", "phase": rnd.phase, "leaderboard": frozen_board})
 
 @router.post("/teams")
 async def create_team(
@@ -278,6 +292,7 @@ async def api_close(
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
+
     extra = {}
     if rnd.current_question_id:
         extra["matrix"] = await admin_question_matrix(session, rnd.current_question_id)
@@ -413,3 +428,20 @@ async def reveal_cards(
     rnd.reveal_cards = bool(on)
     await session.commit()
     return {"reveal_cards": rnd.reveal_cards}
+
+
+@router.post("/round/publish-leaderboard")
+async def api_publish_leaderboard(
+    session: AsyncSession = Depends(get_session),
+    admin: Principal = Depends(require_admin),
+):
+    from app.redisutil import set_frozen_leaderboard
+    live_board = await leaderboard(session)
+    
+    # Save current live scores to Redis
+    await set_frozen_leaderboard(live_board)
+    
+    # Broadcast the newly published leaderboard to all player screens instantly
+    await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": live_board})
+    
+    return {"ok": True, "published": True}

@@ -104,7 +104,10 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         await heartbeat_controller(str(principal.team_id), principal.session_id, get_settings().controller_ttl_sec)
     view = None
     if row and q:
-        view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=True)
+        has_peeked = getattr(row, 'peek_used', False)
+        view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=has_peeked)
+
+    
 
     # --- PURE MILLISECONDS LOGIC ---
     timer_total_sec = 0
@@ -132,14 +135,23 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
 
     question = None
     if q:
-        question = {
+
+        safe_options = None
+        if include_body and q.options:
+            safe_options = [{"id": opt.get("id"), "text": opt.get("text")} for opt in q.options]
+        question = { 
             "id": str(q.id),
             "index": q.index,
             "topic": q.topic,
             "type": q.qtype,
             "prompt": q.prompt if include_body else None,
-            "options": q.options if include_body else None,
+            "options": safe_options,
         }
+
+    from app.redisutil import get_frozen_leaderboard
+    frozen_board = await get_frozen_leaderboard()
+    if frozen_board is None:
+        frozen_board = await leaderboard(session)
         
     return {
         "phase": rnd.phase,
@@ -160,7 +172,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         "me": view,
         "controller_session_id": ctrl,
         "i_am_controller": ctrl == principal.session_id,
-        "leaderboard": await leaderboard(session),
+        "leaderboard": frozen_board,
         "reveal_cards": rnd.reveal_cards,
     }
 
@@ -176,7 +188,7 @@ async def bounty(session: AsyncSession = Depends(get_session), principal: Princi
         raise _err(e) from None
     team = await session.get(Team, principal.team_id)
     await hub.broadcast(team_channel(str(principal.team_id)), {"type": "card", "card": "bounty"})
-    await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": await leaderboard(session)})
+    #await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": await leaderboard(session)})
     await emit_admin_notice(
         kind="bounty",
         team_id=str(principal.team_id),

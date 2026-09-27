@@ -168,6 +168,15 @@
             <tbody id="leaderboard-container" class="divide-y divide-white/5"></tbody>
           </table>
         </div>
+        
+        <!-- NEW PUBLISH SECTION -->
+        <div class="mt-4 pt-4 border-t border-white/10">
+          <button onclick="publishLeaderboard()" class="w-full bg-lime-500/10 text-lime-400 border border-lime-500/30 hover:bg-lime-500/20 py-3 rounded-lg font-bold tracking-widest uppercase text-[11px] transition shadow-[0_0_10px_rgba(132,204,22,0.1)]">
+            Push Live Scores to Players
+          </button>
+        </div>
+        <!-- END NEW PUBLISH SECTION -->
+
       </div>
 
       <div class="card shadow-xl shadow-black/40 lg:col-span-3">
@@ -826,6 +835,18 @@
         await refreshAll();
       } catch (err) {
         alert("Failed to update score: " + err.message);
+      }
+    }
+
+    async function publishLeaderboard() {
+      if (!confirm("Push the current live scores to all player screens right now?")) return;
+
+      try {
+        await api("/api/v1/admin/round/publish-leaderboard", { method: "POST" });
+        showToast("Leaderboard successfully published to all players!");
+        await fetchLeaderboard();
+      } catch (err) {
+        alert("Failed to publish leaderboard: " + err.message);
       }
     }
 
