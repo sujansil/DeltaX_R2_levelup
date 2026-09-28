@@ -1,3 +1,6 @@
+import os
+import shutil
+from fastapi import File, UploadFile
 from typing import Any
 from uuid import UUID
 
@@ -48,6 +51,7 @@ class QuestionIn(BaseModel):
     options: Any | None = None
     answer_key: dict[str, Any]
     hint: str | None = None
+    media_url: str | None = None
 
 
 class QuestionOrderIn(BaseModel):
@@ -93,6 +97,7 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
                 "topic": q.topic,
                 "type": q.qtype,
                 "prompt": q.prompt if rnd.phase in ("live", "closed") else None,
+                "media_url": q.media_url if rnd.phase in ("live", "closed") else None,
                 "options": q.options if rnd.phase in ("live", "closed") else None,
             }
             if q
@@ -185,6 +190,7 @@ async def create_question(
         options=body.options,
         answer_key=body.answer_key,
         hint=body.hint,
+        media_url = body.media_url,
     )
     session.add(q)
     await session.commit()
@@ -228,6 +234,7 @@ async def update_question(
     q.options = body.options
     q.answer_key = body.answer_key
     q.hint = body.hint
+    q.media_url = body.media_url
     await session.commit()
     return {"id": str(q.id)}
 
@@ -363,6 +370,7 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
                 "topic": q.topic,
                 "type": q.qtype,
                 "prompt": q.prompt if rnd.phase in ("live", "closed") else None,
+                "media_url": q.media_url if rnd.phase in ("live", "closed") else None,
                 "options": q.options if rnd.phase in ("live", "closed") else None,
             }
             if q
@@ -445,3 +453,20 @@ async def api_publish_leaderboard(
     await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": live_board})
     
     return {"ok": True, "published": True}
+
+# Ensure the upload directory exists
+UPLOAD_DIR = "app/static/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@router.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    _: Principal = Depends(require_admin)
+):
+    # Save the file locally
+    file_location = f"{UPLOAD_DIR}/{file.filename}"
+    with open(file_location, "wb+") as file_object:
+        shutil.copyfileobj(file.file, file_object)
+    
+    # Return the relative URL path to be saved in the database
+    return {"media_url": f"/static/uploads/{file.filename}"}

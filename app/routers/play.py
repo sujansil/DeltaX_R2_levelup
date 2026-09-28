@@ -132,19 +132,21 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
             now_ms = int(now.timestamp() * 1000)
             time_left_sec = max(0, math.ceil((deadline_ms - now_ms) / 1000))
     # -------------------------------
-
     question = None
     if q:
 
         safe_options = None
         if include_body and q.options:
-            safe_options = [{"id": opt.get("id"), "text": opt.get("text")} for opt in q.options]
+            # Update this line to also extract media_url for the options
+            safe_options = [{"id": opt.get("id"), "text": opt.get("text"), "media_url": opt.get("media_url")} for opt in q.options]
+        
         question = { 
             "id": str(q.id),
             "index": q.index,
             "topic": q.topic,
             "type": q.qtype,
             "prompt": q.prompt if include_body else None,
+            "media_url": q.media_url if include_body else None, # Add the main question image here
             "options": safe_options,
         }
 

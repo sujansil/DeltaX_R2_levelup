@@ -127,6 +127,7 @@
 
             <h2 id="question-text" class="mt-9 text-2xl font-bold leading-tight tracking-tight text-white sm:text-4xl">
               Waiting for the current question...</h2>
+            <img id="question-media" class="mt-6 max-h-[300px] w-auto rounded-xl object-contain hidden border border-white/10 shadow-lg" src="" alt="Question media" />
 
             <div id="hint-container" class="mt-5 hidden rounded-xl border border-violet-400/25 bg-violet-400/10 p-4 text-sm text-violet-200 shadow-[0_0_15px_rgba(139,92,246,0.1)] transition-all">
               <div class="flex items-center gap-2 mb-2">
@@ -357,6 +358,10 @@
           ? selectedChoice === id
           : selectedMulti.has(id);
 
+        const mediaHtml = option.media_url 
+          ? `<img src="${escapeHtml(option.media_url)}" class="mt-4 max-h-32 rounded-lg border border-white/10 shadow-sm object-contain" alt="Option Image" />` 
+          : "";
+
         return `
           <button
             type="button"
@@ -470,6 +475,15 @@
       document.getElementById("question-text").textContent = q.prompt || "";
       document.getElementById("topic-title").textContent = q.topic || "Round topic";
       document.getElementById("topic-desc").textContent = q.prompt || "A new challenge is ready.";
+
+      const qMedia = document.getElementById("question-media");
+      if (q.media_url && (state.phase === "live" || state.phase === "closed")) {
+        qMedia.src = q.media_url;
+        qMedia.classList.remove("hidden");
+      } else {
+        qMedia.classList.add("hidden");
+        qMedia.src = "";
+      }
 
       const hintContainer = document.getElementById("hint-container");
       const hintText = document.getElementById("hint-text");
