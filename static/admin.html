@@ -375,7 +375,13 @@
         return;
       }
 
+      // 1. Generate main question image HTML if available
+      const qMediaHtml = q.media_url 
+        ? `<img src="${escapeHtml(q.media_url)}" class="mt-4 max-h-40 w-auto rounded-xl object-contain border border-white/10 shadow-lg" alt="Question media" />` 
+        : "";
+
       const opts = q.options && Array.isArray(q.options) ? q.options : [];
+      
       panel.innerHTML = `
         <div class="rounded-xl border border-white/10 bg-black/20 p-5">
           <div class="mb-3 flex items-center justify-between">
@@ -384,7 +390,22 @@
           </div>
           <h3 class="text-2xl font-black text-white">${escapeHtml(q.topic || "Current topic")}</h3>
           <p class="mt-3 text-sm text-gray-300">${escapeHtml(q.prompt || "Prompt not visible yet.")}</p>
-          ${opts.length ? `<div class="mt-4 space-y-2">${opts.map((opt, idx) => `<div class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-200">${String.fromCharCode(65 + idx)}. ${escapeHtml(opt.text || opt.option || opt)}</div>`).join("")}</div>` : ""}
+          
+          <!-- Inject the main question image here -->
+          ${qMediaHtml}
+          
+          ${opts.length ? `<div class="mt-4 space-y-2">${opts.map((opt, idx) => {
+            
+            // 2. Generate option image HTML if available
+            const optMediaHtml = opt.media_url 
+              ? `<img src="${escapeHtml(opt.media_url)}" class="mt-2 max-h-20 rounded-md border border-white/10 object-contain shadow-sm" alt="Option Image" />` 
+              : "";
+              
+            return `<div class="flex flex-col justify-center rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-200">
+                      <div>${String.fromCharCode(65 + idx)}. ${escapeHtml(opt.text || opt.option || opt)}</div>
+                      ${optMediaHtml}
+                    </div>`;
+          }).join("")}</div>` : ""}
         </div>
         <div class="rounded-xl border border-white/10 bg-black/20 p-5">
           <div class="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">Player state</div>

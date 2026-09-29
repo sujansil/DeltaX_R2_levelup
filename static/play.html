@@ -358,20 +358,26 @@
           ? selectedChoice === id
           : selectedMulti.has(id);
 
+        // Generate the image tag if a URL exists
         const mediaHtml = option.media_url 
           ? `<img src="${escapeHtml(option.media_url)}" class="mt-4 max-h-32 rounded-lg border border-white/10 shadow-sm object-contain" alt="Option Image" />` 
           : "";
 
+        // Notice how ${mediaHtml} is now injected right before the closing </button>
+        // Also changed flex classes to 'flex-col justify-center' so it stacks properly
         return `
           <button
             type="button"
             data-id="${id}"
             ${locked ? "disabled" : ""}
-            class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
+            class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] w-full flex-col justify-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
             onclick="${locked ? "" : (qtype === "mcq_single" ? `chooseSingle('${id}')` : `toggleMulti('${id}')`)}"
           >
-            <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
-            <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
+            <div class="flex items-center gap-4 w-full">
+              <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
+              <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
+            </div>
+            ${mediaHtml}
           </button>
         `;
       }).join("");
