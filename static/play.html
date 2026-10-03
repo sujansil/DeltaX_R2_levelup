@@ -309,27 +309,119 @@
       });
     }
 
+    // Keep track of the current scores so we know when to animate a change
+    let currentScores = new Map();
+
     function renderLeaderboard(rows) {
       const container = document.getElementById("leaderboard-container");
+      
       if (!rows || !rows.length) {
         container.innerHTML = '<div class="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-white/50">No standings yet.</div>';
+        container.style.height = "auto";
         return;
       }
 
-      container.innerHTML = rows
-        .slice(0, 16)
-        .map((team, idx) => `
-          <div class="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3">
-            <span class="grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">${idx + 1}</span>
+      // Remove the old flex classes so we can use absolute positioning for sliding animations
+      container.classList.remove("flex", "flex-col", "gap-2");
+      container.style.position = "relative";
+
+      const ROW_HEIGHT = 72; // 64px row + 8px gap
+      
+      // Ensure the incoming rows are sorted by score highest to lowest
+      const topRows = [...rows].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 16);
+      
+      // Set the container height dynamically based on the number of teams
+      container.style.height = `${topRows.length * ROW_HEIGHT}px`;
+
+      const maxScore = Math.max(1, Math.max(...topRows.map((t) => t.score || 0)));
+      const seenIds = new Set();
+
+      topRows.forEach((team, idx) => {
+        seenIds.add(team.id);
+        
+        let el = document.getElementById(`board-team-${team.id}`);
+        let oldScore = currentScores.has(team.id) ? currentScores.get(team.id) : null;
+        let targetScore = Number(team.score || 0);
+
+        // If the team row doesn't exist yet, create it
+        if (!el) {
+          el = document.createElement("div");
+          el.id = `board-team-${team.id}`;
+          
+          // Using Tailwind absolute positioning and 1000ms CSS transitions for the sliding effect
+          el.className = "absolute left-0 right-0 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3 transition-all duration-1000 ease-in-out";
+          el.style.opacity = "0";
+          el.style.transform = `translateY(${idx * ROW_HEIGHT}px) scale(0.95)`;
+          
+          el.innerHTML = `
+            <span class="rank-badge grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">${idx + 1}</span>
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-semibold text-white">${escapeHtml(team.name)}</p>
               <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
-                <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400" style="width: ${Math.min(100, (team.score || 0) / Math.max(1, Math.max(...rows.map((t) => t.score || 0))) * 100)}%"></div>
+                <div class="progress-bar h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400 transition-all duration-1000 ease-in-out" style="width: 0%"></div>
               </div>
             </div>
-            <span class="font-mono text-xs font-bold text-cyan-200">${Number(team.score || 0).toLocaleString()}</span>
-          </div>
-        `).join("");
+            <span class="score-display font-mono text-xs font-bold text-cyan-200">0</span>
+          `;
+          container.appendChild(el);
+          
+          // Trigger reflow to ensure the entrance animation plays
+          void el.offsetWidth;
+          el.style.opacity = "1";
+        }
+
+        // 1. Animate the Vertical Sliding Rank Position
+        el.style.transform = `translateY(${idx * ROW_HEIGHT}px) scale(1)`;
+        el.querySelector(".rank-badge").textContent = idx + 1;
+
+        // 2. Animate the Progress Bar
+        const progress = Math.min(100, (targetScore / maxScore) * 100);
+        el.querySelector(".progress-bar").style.width = `${progress}%`;
+
+        // 3. Animate the Number Counting Up/Down
+        if (oldScore !== targetScore) {
+          if (oldScore === null) {
+            el.querySelector(".score-display").textContent = targetScore.toLocaleString();
+            currentScores.set(team.id, targetScore);
+          } else {
+            animateValue(el.querySelector(".score-display"), oldScore, targetScore, 1000);
+            currentScores.set(team.id, targetScore);
+          }
+        }
+      });
+
+      // Clean up any teams that were removed from the leaderboard
+      Array.from(container.children).forEach(child => {
+        if (child.id && child.id.startsWith("board-team-")) {
+          const teamId = child.id.replace("board-team-", "");
+          if (!seenIds.has(teamId)) {
+            child.style.opacity = "0";
+            setTimeout(() => child.remove(), 1000);
+          }
+        }
+      });
+    }
+
+    // Helper function that smoothly ticks a number up or down over a set duration
+    function animateValue(obj, start, end, duration) {
+      let startTimestamp = null;
+      const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        // Calculate progress percentage
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        // Apply an "ease-out" math curve so the counting slows down naturally at the end
+        const easeOutQuart = 1 - Math.pow(1 - progress, 4); 
+        const current = Math.floor(start + easeOutQuart * (end - start));
+        
+        obj.textContent = current.toLocaleString();
+        
+        if (progress < 1) {
+          window.requestAnimationFrame(step);
+        } else {
+          obj.textContent = end.toLocaleString();
+        }
+      };
+      window.requestAnimationFrame(step);
     }
 
     function renderAnswerOptions(question, me = {}) {

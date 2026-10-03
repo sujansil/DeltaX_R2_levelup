@@ -2,10 +2,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.clock import FakeClock
+from app.config import get_settings
 from app.deps import Principal
 from app.engine import (
     EngineError,
@@ -43,9 +45,12 @@ async def ctx():
             index=1,
             topic="Math",
             prompt="2+2?",
-            qtype="numeric",
-            options=None,
-            answer_key={"value": "4", "tolerance": "0"},
+            qtype="mcq_single",
+            options=[
+                {"id": "a", "text": "3"},
+                {"id": "b", "text": "4"},
+            ],
+            answer_key={"option_id": "b"},
             hint="even",
         )
         session.add_all([t1, t2, q])
@@ -73,11 +78,11 @@ async def test_bounty_only_during_topic_and_lock_once(ctx):
     with pytest.raises(EngineError) as e:
         await activate_bounty(session, t2.id, "beta", clock)
     assert e.value.code == "bad_phase"
-    await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+    await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     with pytest.raises(EngineError):
-        await lock_answer(session, t1.id, {"value": "5"}, "alpha", clock)
+        await lock_answer(session, t1.id, {"option_id": "a"}, "alpha", clock)
     clock.advance_sec(10)
-    await lock_answer(session, t2.id, {"value": "0"}, "beta", clock)
+    await lock_answer(session, t2.id, {"option_id": "a"}, "beta", clock)
     await close_question(session, "admin", clock)
     await session.refresh(t1)
     await session.refresh(t2)
@@ -94,7 +99,7 @@ async def test_timeout_zero_freeze_extends_and_snapshots(ctx):
     clock.advance_sec(90)
     await use_freeze(session, t1.id, "alpha", clock)
     clock.advance_sec(40)  # would be past 150 without freeze
-    await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+    await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     await close_question(session, "admin", clock)
     await session.refresh(t1)
     await session.refresh(t2)
@@ -153,7 +158,7 @@ async def test_cannot_lock_after_deadline(ctx):
     await start_question(session, "admin", clock)
     clock.advance_sec(150)
     with pytest.raises(EngineError) as e:
-        await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+        await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     assert e.value.code == "time_up"
 
 
@@ -161,7 +166,7 @@ async def test_restart_round_resets_state_and_scores(ctx):
     session, clock, t1, t2, q = ctx
     await show_topic(session, q.id, "admin", clock)
     await start_question(session, "admin", clock)
-    await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+    await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     await close_question(session, "admin", clock)
 
     await restart_round(session, "admin", clock)
@@ -199,7 +204,7 @@ async def test_swap_requires_lock_and_is_once(ctx):
     with pytest.raises(EngineError) as e:
         await use_swap(session, t1.id, t2.id, "alpha", clock)
     assert e.value.code == "not_locked"
-    await lock_answer(session, t1.id, {"value": "4"}, "alpha", clock)
+    await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     await use_swap(session, t1.id, t2.id, "alpha", clock)
     with pytest.raises(EngineError) as e:
         await use_swap(session, t1.id, t2.id, "alpha", clock)
@@ -228,9 +233,17 @@ async def test_admin_round_route_handles_active_question(ctx):
 
 
 async def test_release_route_refuses_wrong_session_without_broadcast(monkeypatch):
+    principal = Principal(
+        user_id=uuid4(),
+        username="alpha",
+        role="team",
+        team_id=uuid4(),
+        session_id="sess-other",
+    )
+
     class FakeRedis:
         def __init__(self):
-            self.store = {"ctrl:team-1": "sess-owner"}
+            self.store = {f"ctrl:{principal.team_id}": "sess-owner"}
 
         async def get(self, key):
             return self.store.get(key)
@@ -252,43 +265,15 @@ async def test_release_route_refuses_wrong_session_without_broadcast(monkeypatch
 
     monkeypatch.setattr("app.routers.play.hub.broadcast", fake_broadcast)
 
-    principal = Principal(
-        user_id=uuid4(),
-        username="alpha",
-        role="team",
-        team_id=uuid4(),
-        session_id="sess-other",
-    )
-
-    with pytest.raises(Exception):
+    with pytest.raises(HTTPException) as exc:
         await release(principal=principal)
 
+    assert exc.value.status_code == 409
+    assert fake_redis.store[f"ctrl:{principal.team_id}"] == "sess-owner"
     assert broadcast_calls == []
 
 
 async def test_require_controller_renews_lease_for_active_session(monkeypatch):
-    class FakeRedis:
-        def __init__(self):
-            self.store = {"ctrl:team-1": "sess-owner"}
-
-        async def get(self, key):
-            return self.store.get(key)
-
-    fake_redis = FakeRedis()
-
-    async def fake_get_redis():
-        return fake_redis
-
-    monkeypatch.setattr("app.redisutil.get_redis", fake_get_redis)
-
-    calls = []
-
-    async def fake_heartbeat(team_id, session_id, ttl):
-        calls.append((team_id, session_id, ttl))
-        return True
-
-    monkeypatch.setattr("app.routers.play.heartbeat_controller", fake_heartbeat)
-
     principal = Principal(
         user_id=uuid4(),
         username="alpha",
@@ -297,15 +282,43 @@ async def test_require_controller_renews_lease_for_active_session(monkeypatch):
         session_id="sess-owner",
     )
 
+    class FakeRedis:
+        def __init__(self):
+            self.store = {f"ctrl:{principal.team_id}": "sess-owner"}
+            self.expirations = []
+
+        async def get(self, key):
+            return self.store.get(key)
+
+        async def expire(self, key, ttl):
+            self.expirations.append((key, ttl))
+
+    fake_redis = FakeRedis()
+
+    async def fake_get_redis():
+        return fake_redis
+
+    monkeypatch.setattr("app.redisutil.get_redis", fake_get_redis)
+
     await _require_controller(principal)
 
-    assert calls == [(str(principal.team_id), principal.session_id, 120)]
+    assert fake_redis.expirations == [
+        (f"ctrl:{principal.team_id}", get_settings().controller_ttl_sec)
+    ]
 
 
 async def test_reorder_questions_updates_canonical_index_order(ctx):
     session, clock, t1, t2, q = ctx
-    q2 = Question(id=uuid4(), index=2, topic="History", prompt="Who won WWII?", qtype="text", answer_key={"value": "Allies"}, hint="coalition")
-    q3 = Question(id=uuid4(), index=3, topic="Science", prompt="H2O?", qtype="text", answer_key={"value": "Water"}, hint="liquid")
+    q2 = Question(
+        id=uuid4(), index=2, topic="History", prompt="Who won WWII?",
+        qtype="mcq_single", options=[{"id": "a", "text": "Allies"}],
+        answer_key={"option_id": "a"}, hint="coalition",
+    )
+    q3 = Question(
+        id=uuid4(), index=3, topic="Science", prompt="H2O?",
+        qtype="mcq_single", options=[{"id": "a", "text": "Water"}],
+        answer_key={"option_id": "a"}, hint="liquid",
+    )
     session.add_all([q2, q3])
     await session.commit()
 
@@ -329,7 +342,11 @@ async def test_player_state_shows_live_timer_contract(ctx, monkeypatch):
     async def fake_get_controller(team_id):
         return None
 
+    async def fake_get_frozen_leaderboard():
+        return []
+
     monkeypatch.setattr("app.routers.play.get_controller", fake_get_controller)
+    monkeypatch.setattr("app.redisutil.get_frozen_leaderboard", fake_get_frozen_leaderboard)
 
     payload = await state(
         session,
