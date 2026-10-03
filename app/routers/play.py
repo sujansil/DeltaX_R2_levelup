@@ -104,7 +104,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         await heartbeat_controller(str(principal.team_id), principal.session_id, get_settings().controller_ttl_sec)
     view = None
     if row and q:
-        has_peeked = getattr(row, 'peek_used', False)
+        has_peeked = row.peek
         view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=has_peeked)
 
     

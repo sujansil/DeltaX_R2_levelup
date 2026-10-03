@@ -335,7 +335,7 @@ def _still_time(rnd, row: TeamQuestion, now) -> None:
         deadline_at = _normalize_utc(row.deadline_at)
     else :
         started_utc = _normalize_utc(rnd.live_started_at)
-        deadline_at = started_utc + timedelta(microseconds=150000)
+        deadline_at = started_utc + timedelta(milliseconds=QUESTION_MS)
 
     if now_utc >= deadline_at :
         raise EngineError("time_up", "Team timer has ended")

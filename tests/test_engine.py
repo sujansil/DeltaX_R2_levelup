@@ -22,12 +22,13 @@ from app.engine import (
     try_autostart,
     try_autoclose,
     use_freeze,
+    use_peek,
     use_swap,
 )
 from app.models import Base, Question, Team, TeamQuestion
 from app.routers.admin import QuestionIn, api_round
 from app.routers.play import _require_controller, release, state
-from app.scoring import BOUNTY_COST
+from app.scoring import BOUNTY_COST, PEEK_COST, QUESTION_MS
 
 
 @pytest.fixture
@@ -162,6 +163,89 @@ async def test_cannot_lock_after_deadline(ctx):
     assert e.value.code == "time_up"
 
 
+async def test_start_question_sets_team_deadlines_that_survive_state_reload(ctx):
+    session, clock, t1, t2, q = ctx
+    question_id = q.id
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    started_at = (await get_round(session)).live_started_at
+    rows = (
+        await session.execute(
+            __import__("sqlalchemy").select(TeamQuestion).where(
+                TeamQuestion.question_id == question_id
+            )
+        )
+    ).scalars().all()
+    assert {row.deadline_at for row in rows} == {
+        started_at + timedelta(seconds=150)
+    }
+
+    await session.commit()
+    session.expire_all()
+
+    reloaded_round = await get_round(session)
+    reloaded_rows = (
+        await session.execute(
+            __import__("sqlalchemy").select(TeamQuestion).where(
+                TeamQuestion.question_id == question_id
+            )
+        )
+    ).scalars().all()
+    assert reloaded_round.phase == "live"
+    assert reloaded_round.live_started_at == started_at
+    assert {row.deadline_at for row in reloaded_rows} == {
+        started_at + timedelta(seconds=150)
+    }
+
+
+async def test_valid_deadline_allows_149_999ms_but_rejects_exactly_150s(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    clock.advance_ms(149_999)
+    row = await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
+    assert row.locked_elapsed_ms == 149_999
+
+    clock.advance_ms(1)
+    with pytest.raises(EngineError) as exc:
+        await lock_answer(session, t2.id, {"option_id": "b"}, "beta", clock)
+    assert exc.value.code == "time_up"
+
+
+async def test_missing_deadline_fallback_matches_normal_150s_deadline(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    started_at = (await get_round(session)).live_started_at
+    rows = (
+        await session.execute(
+            __import__("sqlalchemy").select(TeamQuestion).where(
+                TeamQuestion.question_id == q.id
+            )
+        )
+    ).scalars().all()
+    normal_deadline = rows[0].deadline_at
+    assert normal_deadline == started_at + timedelta(milliseconds=QUESTION_MS)
+
+    for row in rows:
+        row.deadline_at = None
+    await session.flush()
+
+    clock.advance_ms(QUESTION_MS - 1)
+    peek_row = await use_peek(session, t1.id, "alpha", clock)
+    assert peek_row.peek is True
+
+    clock.advance_ms(1)
+    with pytest.raises(EngineError) as exc:
+        await use_peek(session, t2.id, "beta", clock)
+    assert exc.value.code == "time_up"
+    await session.refresh(t2)
+    assert t2.score == 5000
+
+
 async def test_restart_round_resets_state_and_scores(ctx):
     session, clock, t1, t2, q = ctx
     await show_topic(session, q.id, "admin", clock)
@@ -215,6 +299,80 @@ async def test_swap_requires_lock_and_is_once(ctx):
     # A had correct, swapped onto empty B → A gets 0, B gets A's correct at B's (unlocked→locked via swap) time 0
     assert t1.score == 5000
     assert t2.score == 5000 + 2000
+
+
+async def test_peek_charges_once_and_hint_survives_state_reload(ctx, monkeypatch):
+    session, clock, t1, t2, q = ctx
+    team_id = t1.id
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    row = await use_peek(session, t1.id, "alpha", clock)
+    await session.commit()
+
+    assert row.peek is True
+    await session.refresh(t1)
+    assert t1.score == 5000 - PEEK_COST
+
+    async def fake_get_controller(team_id):
+        return None
+
+    async def fake_get_frozen_leaderboard():
+        return []
+
+    monkeypatch.setattr("app.routers.play.get_controller", fake_get_controller)
+    monkeypatch.setattr("app.redisutil.get_frozen_leaderboard", fake_get_frozen_leaderboard)
+
+    principal = Principal(
+        user_id=t1.id,
+        username="alpha",
+        role="team",
+        team_id=t1.id,
+        session_id="s-1",
+    )
+    first_state = await state(session, principal)
+    assert first_state["me"]["peek"] is True
+    assert first_state["me"]["hint"] == "even"
+
+    session.expire_all()
+    reloaded_state = await state(session, principal)
+    assert reloaded_state["me"]["peek"] is True
+    assert reloaded_state["me"]["hint"] == "even"
+
+    with pytest.raises(EngineError) as exc:
+        await use_peek(session, t1.id, "alpha", clock)
+    assert exc.value.code == "already_used"
+    await session.rollback()
+
+    reloaded_team = await session.get(Team, team_id)
+    assert reloaded_team.score == 5000 - PEEK_COST
+
+
+async def test_peek_locks_state_team_and_card_row_before_charging(ctx):
+    session, clock, t1, t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    class RecordingSession:
+        def __init__(self, delegate):
+            self.delegate = delegate
+            self.locked_tables = []
+
+        async def execute(self, statement, *args, **kwargs):
+            if statement._for_update_arg is not None:
+                self.locked_tables.extend(table.name for table in statement.get_final_froms())
+            return await self.delegate.execute(statement, *args, **kwargs)
+
+        def add(self, instance):
+            self.delegate.add(instance)
+
+        async def flush(self):
+            await self.delegate.flush()
+
+    recording_session = RecordingSession(session)
+    await use_peek(recording_session, t1.id, "alpha", clock)
+
+    assert recording_session.locked_tables == ["round_state", "teams", "team_questions"]
 
 
 async def test_admin_round_route_handles_active_question(ctx):
