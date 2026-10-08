@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
+from collections.abc import Awaitable
 from typing import Any
 
 from fastapi import WebSocket
@@ -10,6 +12,25 @@ from app.redisutil import get_redis, publish as redis_publish
 
 PUBLIC = "ch:public"
 ADMIN = "ch:admin"
+logger = logging.getLogger(__name__)
+
+
+async def notify_after_commit(
+    notification: Awaitable[Any],
+    *,
+    operation: str,
+    context: dict[str, Any] | None = None,
+) -> Any | None:
+    """Run a non-authoritative notification without failing committed work."""
+    try:
+        return await notification
+    except Exception:
+        logger.exception(
+            "Post-commit notification failed for %s",
+            operation,
+            extra={"notification_context": context or {}},
+        )
+        return None
 
 
 async def emit_admin_notice(*, kind: str, team_id: str | None = None, team_name: str | None = None, question_id: str | None = None, payload: dict | None = None, message: str | None = None) -> None:

@@ -27,7 +27,7 @@ from app.engine import (
 from app.models import AuditEvent, Question, Team, User
 from app.redisutil import release_controller
 from app.security import hash_password
-from app.ws import ADMIN, PUBLIC, hub, team_channel
+from app.ws import ADMIN, PUBLIC, hub, notify_after_commit, team_channel
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -77,7 +77,11 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
     live_board = await leaderboard(session)
     
     # Try to get the frozen board, fallback to live if it's the very first run
-    frozen_board = await get_frozen_leaderboard()
+    frozen_board = await notify_after_commit(
+        get_frozen_leaderboard(),
+        operation="admin.fanout.read_frozen_leaderboard",
+        context={"phase": rnd.phase},
+    )
     if frozen_board is None:
         frozen_board = live_board
 
@@ -108,7 +112,11 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
     from datetime import datetime, timezone
 
     public["server_now"] = datetime.now(timezone.utc).isoformat()
-    await hub.broadcast(PUBLIC, public)
+    await notify_after_commit(
+        hub.broadcast(PUBLIC, public),
+        operation="admin.fanout.public",
+        context={"phase": rnd.phase},
+    )
     
     # ADMIN payload gets the LIVE leaderboard so you can monitor point spending in real-time
     admin_payload = dict(public)
@@ -117,14 +125,26 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
     if extra_admin:
         admin_payload.update(extra_admin)
         
-    await hub.broadcast(ADMIN, admin_payload)
+    await notify_after_commit(
+        hub.broadcast(ADMIN, admin_payload),
+        operation="admin.fanout.admin",
+        context={"phase": rnd.phase},
+    )
     
     if q:
         matrix = await admin_question_matrix(session, q.id)
-        await hub.broadcast(ADMIN, {"type": "matrix", "matrix": matrix})
+        await notify_after_commit(
+            hub.broadcast(ADMIN, {"type": "matrix", "matrix": matrix}),
+            operation="admin.fanout.matrix",
+            context={"question_id": str(q.id)},
+        )
         for t in live_board:
             # Tell teams to update, but only give them the frozen board
-            await hub.broadcast(team_channel(t["id"]), {"type": "state_tick", "phase": rnd.phase, "leaderboard": frozen_board})
+            await notify_after_commit(
+                hub.broadcast(team_channel(t["id"]), {"type": "state_tick", "phase": rnd.phase, "leaderboard": frozen_board}),
+                operation="admin.fanout.team",
+                context={"team_id": t["id"], "phase": rnd.phase},
+            )
 
 @router.post("/teams")
 async def create_team(
@@ -305,13 +325,21 @@ async def api_close(
         extra["matrix"] = await admin_question_matrix(session, rnd.current_question_id)
         extra["swap_notices"] = extra["matrix"]["swaps"]
         for s in extra["matrix"]["swaps"]:
-            await hub.broadcast(
-                team_channel(s["target"]),
-                {"type": "swap_notice", "source": s["source"], "question_id": str(rnd.current_question_id)},
+            await notify_after_commit(
+                hub.broadcast(
+                    team_channel(s["target"]),
+                    {"type": "swap_notice", "source": s["source"], "question_id": str(rnd.current_question_id)},
+                ),
+                operation="admin.close.swap_target",
+                context={"target_team_id": s["target"], "question_id": str(rnd.current_question_id)},
             )
-            await hub.broadcast(
-                team_channel(s["source"]),
-                {"type": "swap_applied", "target": s["target"], "question_id": str(rnd.current_question_id)},
+            await notify_after_commit(
+                hub.broadcast(
+                    team_channel(s["source"]),
+                    {"type": "swap_applied", "target": s["target"], "question_id": str(rnd.current_question_id)},
+                ),
+                operation="admin.close.swap_source",
+                context={"source_team_id": s["source"], "question_id": str(rnd.current_question_id)},
             )
     await _fanout(session, extra_admin=extra)
     return {"ok": True}
