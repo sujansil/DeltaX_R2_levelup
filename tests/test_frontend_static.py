@@ -35,3 +35,41 @@ def test_admin_frontend_is_local_and_exposes_session_and_restart_controls():
     assert 'id="restart-modal"' in html
     assert "/sessions/revoke-all" in js
     assert 'confirmation, expected_round_version: roundState.version' in js
+
+
+def test_login_keeps_relative_auth_and_optional_three_background():
+    html = (ROOT / "static" / "login.html").read_text()
+    background_js = (ROOT / "static" / "login-background.js").read_text()
+    right_field_js = (ROOT / "static" / "login-right-field.js").read_text()
+
+    assert 'id="f"' in html
+    assert 'name="username"' in html
+    assert 'name="password"' in html
+    assert 'api("/api/v1/auth/login"' in html
+    assert "saveAuth(data)" in html
+    assert 'data.role === "admin" ? "/admin" : "/play"' in html
+    assert "localhost" not in html
+    assert "/static/login-background.js" in html
+    assert 'import("/static/vendor/three.module.min.js")' in background_js
+    assert "document.hidden" in background_js
+    assert 'prefers-reduced-motion: reduce' in background_js
+    assert "Math.min(window.devicePixelRatio || 1" in background_js
+    assert 'pointerTarget.x = THREE.MathUtils.clamp' in background_js
+    assert 'THREE.MathUtils.lerp(pointerCurrent.x, pointerTarget.x' in background_js
+    assert 'document.documentElement.addEventListener("pointerleave"' in background_js
+    assert 'id="delta-value"' in html
+    assert 'id="separation-value"' in html
+    assert "THREE.DynamicDrawUsage" in background_js
+    assert "updateLorenz(primaryPositions" in background_js
+    assert "updateLorenz(perturbedPositions" in background_js
+    assert "createMobius" in background_js
+    assert "ambientStructure.rotation.y" in background_js
+    assert "visualPane.getBoundingClientRect()" in background_js
+    assert 'id="right-field-canvas"' in html
+    assert "/static/login-right-field.js" in html
+    assert 'new THREE.WebGLRenderer' in right_field_js
+    assert 'import("/static/vendor/three.module.min.js")' in right_field_js
+    assert "createMobius" in right_field_js
+    assert ".scene::after" not in (ROOT / "static" / "login.css").read_text()
+    assert 'window.addEventListener("pointermove"' in right_field_js
+    assert "document.hidden" in right_field_js
