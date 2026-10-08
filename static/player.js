@@ -110,7 +110,9 @@
 
     setPhase(phase);
     $("team-name").textContent = team.name || authState.team_name || "TEAM";
-    $("team-score").textContent = formatNumber(team.score || 0);
+    const teamScore = formatNumber(team.score || 0);
+    $("team-score").textContent = teamScore;
+    $("mobile-team-score").textContent = teamScore;
     $("question-number").textContent = q?.index ? `Q${q.index}` : "—";
     $("question-topic").textContent = q?.topic || "—";
     $("topic-title").textContent = q?.topic || "Awaiting topic";
@@ -281,7 +283,8 @@
         enabled: state.i_am_controller && state.phase === "live" && !me.peek && Number(team.score || 0) >= CARD_COSTS.peek,
       },
       swap: {
-        used: !!me.swap_used || team.swap_available === false,
+        used: !!me.swap_used,
+        unavailable: !me.swap_used && team.swap_available === false,
         enabled: state.i_am_controller && state.phase === "live" && !!me.locked && !me.swap_used && team.swap_available !== false,
       },
     };
@@ -290,8 +293,10 @@
       [$(`${name}-button`), $(`mobile-${name}-button`)].filter(Boolean).forEach((btn) => {
         btn.disabled = !spec.enabled;
         btn.classList.toggle("used", spec.used);
+        btn.classList.toggle("unavailable", !!spec.unavailable);
         btn.dataset.used = String(spec.used);
-        btn.title = spec.used ? "Already used" : "";
+        btn.dataset.unavailable = String(!!spec.unavailable);
+        btn.title = spec.used ? "Already used" : (spec.unavailable ? "Unavailable" : "");
       });
     });
   }

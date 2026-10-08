@@ -738,6 +738,8 @@ async def admin_question_matrix(session: AsyncSession, question_id: UUID) -> dic
                 "is_correct": r.is_correct,
                 "points_delta": r.points_delta,
                 "deadline_at": r.deadline_at.isoformat() if r.deadline_at else None,
+                "freeze_elapsed_ms": r.freeze_elapsed_ms,
+                "locked_elapsed_ms": r.locked_elapsed_ms,
             }
             for r in rows
         ],

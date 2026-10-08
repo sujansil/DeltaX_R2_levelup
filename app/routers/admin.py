@@ -379,6 +379,7 @@ async def list_questions(session: AsyncSession = Depends(get_session), _: Princi
             "options": q.options,
             "answer_key": q.answer_key,
             "hint": q.hint,
+            "media_url": q.media_url,
         }
         for q in qs
     ]
@@ -572,6 +573,34 @@ async def api_release(
     await release_controller(str(team_id), force=True)
     await hub.broadcast(team_channel(str(team_id)), {"type": "controller_released"})
     return {"ok": True}
+
+
+@router.get("/teams/{team_id}/audit")
+async def api_team_audit(
+    team_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: Principal = Depends(require_admin),
+):
+    if await session.get(Team, team_id) is None:
+        raise HTTPException(404, "Team not found")
+    rows = (
+        await session.execute(
+            select(AuditEvent)
+            .where(AuditEvent.team_id == team_id)
+            .order_by(AuditEvent.at.asc())
+        )
+    ).scalars().all()
+    return [
+        {
+            "at": r.at.isoformat() if r.at else None,
+            "actor": r.actor,
+            "kind": r.kind,
+            "team_id": str(r.team_id) if r.team_id else None,
+            "question_id": str(r.question_id) if r.question_id else None,
+            "payload": r.payload,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/audit")

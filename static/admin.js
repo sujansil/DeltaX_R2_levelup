@@ -9,6 +9,7 @@
   let questions = [];
   let teams = [];
   let auditRows = [];
+  let auditMode = "team";
   let selectedQuestionId = null;
   let selectedTeamId = null;
   let selectedSessions = null;
@@ -34,15 +35,17 @@
   }
 
   function bindControls() {
+    $("next-button").addEventListener("click", nextQuestion);
     $("start-button").addEventListener("click", startQuestion);
     $("close-button").addEventListener("click", closeQuestion);
     $("publish-button").addEventListener("click", publishLeaderboard);
-    $("cards-button").addEventListener("click", toggleCards);
+    $("view-question-button").addEventListener("click", () => openQuestionViewer(selectedQuestionId || roundState?.current_question_id));
     $("restart-open").addEventListener("click", () => openModal("restart-modal"));
     $("restart-confirm").addEventListener("click", restartRound);
     $("create-team-open").addEventListener("click", () => openModal("create-team-modal"));
     $("create-team-form").addEventListener("submit", createTeam);
     $("audit-refresh").addEventListener("click", refreshAudit);
+    $("audit-all").addEventListener("click", () => { auditMode = auditMode === "all" ? "team" : "all"; refreshAudit(); });
     $("release-controller-button").addEventListener("click", releaseController);
     $("revoke-all-button").addEventListener("click", revokeAllSessions);
     $("admin-logout").addEventListener("click", () => logout(false));
@@ -117,7 +120,10 @@
     $("start-button").disabled = phase !== "topic";
     $("close-button").disabled = phase !== "live";
     $("restart-open").disabled = phase === "live";
-    $("cards-button").textContent = roundState?.reveal_cards ? "HIDE POWER-UPS" : "REVEAL POWER-UPS";
+    const next = getNextQuestion();
+    $("next-button").disabled = phase === "live" || phase === "topic" || !next;
+    $("next-button").textContent = next ? `NEXT → Q${next.index}` : "NO NEXT QUESTION";
+    $("view-question-button").disabled = !(selectedQuestionId || roundState?.current_question_id);
   }
 
   function renderQuestionQueue() {
@@ -135,6 +141,7 @@
           <div class="queue-prompt">${escapeHtml(q.prompt)}</div>
         </div>
         <div class="queue-actions">
+          <button class="mini" data-action="view" title="View full question">VIEW</button>
           <button class="mini" data-action="topic" title="Show topic">TOPIC</button>
           <button class="mini" data-action="up" title="Move up">↑</button>
           <button class="mini" data-action="down" title="Move down">↓</button>
@@ -144,6 +151,7 @@
     target.querySelectorAll(".queue-item").forEach((row) => {
       row.addEventListener("click", (ev) => {
         const id = row.dataset.questionId;
+        if (ev.target.dataset.action === "view") return openQuestionViewer(id);
         if (ev.target.dataset.action === "topic") return showTopic(id);
         if (ev.target.dataset.action === "up") return moveQuestion(id, -1);
         if (ev.target.dataset.action === "down") return moveQuestion(id, 1);
@@ -187,6 +195,7 @@
           <span class="rank">#${ranks.get(team.id)}</span>
           <span class="team-name">${escapeHtml(team.name)}</span>
           <span class="score">${formatNumber(team.score)}</span>
+          <span class="cell-center team-time" data-deadline="${escapeHtml(row.deadline_at || "")}" data-locked="${row.locked ? "1" : "0"}" data-graded="${row.graded ? "1" : "0"}" data-freeze="${row.freeze ? "1" : "0"}">${formatTeamTime(row)}</span>
           <span class="cell-center">${activeCount}/4</span>
           <span class="cell-center"><i class="flag ${ctrl ? "on ctrl" : ""}">${ctrl ? "●" : "○"}</i></span>
           <span class="cell-center"><i class="flag ${row.locked ? "on" : ""}">${row.locked ? "YES" : "NO"}</i></span>
@@ -291,17 +300,32 @@
 
   async function refreshAudit() {
     try {
-      auditRows = await api("/api/v1/admin/audit");
-      const target = $("audit-log");
-      target.innerHTML = (auditRows || []).slice(0, 40).map((row) => `
-        <div class="audit-row">
-          <time>${formatTime(row.at)}</time>
-          <span class="audit-kind">${escapeHtml(row.kind || "event")}</span>
-          <span class="audit-copy" title="${escapeHtml(JSON.stringify(row.payload || {}))}">${escapeHtml(row.actor || "system")} ${row.team_id ? `// ${shorten(row.team_id, 8)}` : ""} ${escapeHtml(JSON.stringify(row.payload || {}))}</span>
-        </div>`).join("") || `<div class="inspector-empty">No audit entries.</div>`;
+      const team = teams.find((t) => t.id === selectedTeamId);
+      if (auditMode === "team" && selectedTeamId) {
+        auditRows = await api(`/api/v1/admin/teams/${selectedTeamId}/audit`);
+        $("audit-title").textContent = `TEAM_LOG // ${team?.name || "TEAM"}`;
+        $("audit-all").textContent = "ALL EVENT";
+      } else {
+        auditRows = await api("/api/v1/admin/audit");
+        $("audit-title").textContent = "AUDIT_STREAM // ALL EVENT";
+        $("audit-all").textContent = selectedTeamId ? "SELECTED TEAM" : "TEAM LOG";
+      }
+      renderAuditRows();
     } catch (err) {
       showToast(`Audit unavailable: ${err.message}`, true);
     }
+  }
+
+  function renderAuditRows() {
+    const target = $("audit-log");
+    const rows = auditRows || [];
+    target.innerHTML = rows.map((row) => `
+      <div class="audit-row">
+        <time title="${escapeHtml(formatDateTime(row.at))}">${formatTime(row.at)}</time>
+        <span class="audit-kind">${escapeHtml(row.kind || "event")}</span>
+        <span class="audit-copy" title="${escapeHtml(JSON.stringify(row.payload || {}))}">${escapeHtml(row.actor || "system")} ${row.question_id ? `// QID ${shorten(row.question_id, 8)}` : ""} ${escapeHtml(JSON.stringify(row.payload || {}))}</span>
+      </div>`).join("") || `<div class="inspector-empty">No audit entries.</div>`;
+    target.scrollTop = target.scrollHeight;
   }
 
   async function refreshHealth() {
@@ -349,7 +373,9 @@
     renderMatrix();
     renderInspector();
     renderSessions();
+    auditMode = "team";
     refreshSelectedSessions({ quiet: true });
+    refreshAudit();
   }
 
   async function showTopic(questionId) {
@@ -382,12 +408,40 @@
     }, "Published leaderboard pushed to players");
   }
 
-  async function toggleCards() {
-    const on = roundState?.reveal_cards ? 0 : 1;
-    await action(async () => {
-      await api(`/api/v1/admin/round/reveal-cards/${on}`, { method: "POST" });
-      await refreshCore({ quiet: true });
-    }, on ? "Power-ups revealed" : "Power-ups hidden");
+  function getNextQuestion() {
+    const ordered = [...questions].sort((a, b) => a.index - b.index);
+    if (!ordered.length) return null;
+    const currentId = roundState?.current_question_id;
+    if (!currentId) return ordered[0];
+    const currentIndex = ordered.findIndex((q) => q.id === currentId);
+    if (currentIndex < 0) return ordered[0];
+    return ordered[currentIndex + 1] || null;
+  }
+
+  async function nextQuestion() {
+    const next = getNextQuestion();
+    if (!next) return showToast("No next question is loaded", true);
+    await showTopic(next.id);
+  }
+
+  function openQuestionViewer(questionId) {
+    const q = questions.find((item) => item.id === questionId);
+    if (!q) return showToast("Question not found", true);
+    selectedQuestionId = q.id;
+    const options = Array.isArray(q.options)
+      ? q.options.map((opt, i) => `<div class="question-option"><b>${escapeHtml(opt.id || opt.key || String.fromCharCode(65 + i))}</b><span>${escapeHtml(opt.text ?? opt.label ?? JSON.stringify(opt))}</span></div>`).join("")
+      : q.options ? `<pre>${escapeHtml(JSON.stringify(q.options, null, 2))}</pre>` : `<div class="question-muted">No options.</div>`;
+    $("question-modal-title").textContent = `Q${q.index} // ${q.topic}`;
+    $("question-modal-body").innerHTML = `
+      <div class="question-meta"><span>${escapeHtml(q.type || "")}</span><span>ANSWER: ${escapeHtml(answerSummary(q.answer_key))}</span></div>
+      ${q.media_url ? `<img class="question-media" src="${escapeHtml(q.media_url)}" alt="Question media" />` : ""}
+      <div class="question-prompt-full">${escapeHtml(q.prompt || "")}</div>
+      <div class="question-options-full">${options}</div>
+      <div class="question-detail"><b>ANSWER KEY</b><pre>${escapeHtml(JSON.stringify(q.answer_key || {}, null, 2))}</pre></div>
+      <div class="question-detail"><b>HINT / PEEK</b><div>${escapeHtml(q.hint || "—")}</div></div>`;
+    renderQuestionQueue();
+    renderRoundControl();
+    openModal("question-modal");
   }
 
   async function moveQuestion(questionId, direction) {
@@ -501,15 +555,40 @@
       const now = serverNowMs(roundState.server_now);
       $("header-clock").textContent = new Date(now).toLocaleTimeString([], { hour12: false });
       $("header-countdown").textContent = computeCountdown(now);
+      updateTeamTimers(now);
     }
     requestAnimationFrame(tickClock);
+  }
+
+  function formatTeamTime(row) {
+    if (row?.graded) return "DONE";
+    if (row?.locked) return "LOCKED";
+    if (!row?.deadline_at || roundState?.phase !== "live") return "—";
+    const now = roundState?.server_now ? serverNowMs(roundState.server_now) : Date.now();
+    return formatRemaining(new Date(row.deadline_at).getTime() - now, !!row.freeze);
+  }
+
+  function updateTeamTimers(now) {
+    document.querySelectorAll(".team-time").forEach((el) => {
+      if (el.dataset.graded === "1") { el.textContent = "DONE"; return; }
+      if (el.dataset.locked === "1") { el.textContent = "LOCKED"; return; }
+      if (!el.dataset.deadline || roundState?.phase !== "live") { el.textContent = "—"; return; }
+      el.textContent = formatRemaining(new Date(el.dataset.deadline).getTime() - now, el.dataset.freeze === "1");
+      el.classList.toggle("freeze-time", el.dataset.freeze === "1");
+    });
+  }
+
+  function formatRemaining(ms, freeze) {
+    const sec = Math.max(0, Math.ceil(ms / 1000));
+    const text = `${sec}s`;
+    return freeze ? `${text} F` : text;
   }
 
   function computeCountdown(now) {
     if (!roundState?.global_deadline_ms) return "—";
     const ms = Math.max(0, Number(roundState.global_deadline_ms) - now);
     const sec = Math.ceil(ms / 1000);
-    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    return `${sec}s`;
   }
 
   function syncServerClock(serverNow) {
