@@ -1,6 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import asyncio
 
-from app.security import decode_token
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+
+from app.db import SessionLocal
+from app.deps import principal_from_token
 from app.ws import ADMIN, PUBLIC, hub, team_channel
 
 router = APIRouter()
@@ -13,22 +16,32 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.close(code=4401)
         return
     try:
-        payload = decode_token(token)
-    except Exception:
+        async with SessionLocal() as session:
+            principal = await principal_from_token(token, session)
+    except HTTPException:
         await ws.close(code=4401)
         return
     await ws.accept()
     channels = [PUBLIC]
-    if payload.get("role") == "admin":
+    if principal.role == "admin":
         channels.append(ADMIN)
-    if payload.get("team_id"):
-        channels.append(team_channel(str(payload["team_id"])))
+    if principal.team_id:
+        channels.append(team_channel(str(principal.team_id)))
     for ch in channels:
         hub.add(ch, ws)
     try:
-        await ws.send_json({"type": "hello", "role": payload.get("role"), "channels": channels})
+        await ws.send_json({"type": "hello", "role": principal.role, "channels": channels})
         while True:
-            await ws.receive_text()
+            try:
+                await asyncio.wait_for(ws.receive_text(), timeout=5)
+            except TimeoutError:
+                pass
+            try:
+                async with SessionLocal() as session:
+                    await principal_from_token(token, session)
+            except HTTPException:
+                await ws.close(code=4401)
+                break
     except WebSocketDisconnect:
         pass
     finally:

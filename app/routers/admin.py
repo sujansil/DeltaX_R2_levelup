@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime, timezone
 from fastapi import File, UploadFile
 from typing import Any
 from uuid import UUID
@@ -24,8 +25,8 @@ from app.engine import (
     show_topic,
     start_question,
 )
-from app.models import AuditEvent, Question, Team, User
-from app.redisutil import release_controller
+from app.models import AuditEvent, AuthSession, Question, Team, User
+from app.redisutil import get_controller, release_controller
 from app.security import hash_password
 from app.ws import ADMIN, PUBLIC, hub, notify_after_commit, team_channel
 
@@ -175,6 +176,101 @@ async def create_team(
 async def list_teams(session: AsyncSession = Depends(get_session), _: Principal = Depends(require_admin)):
     teams = (await session.execute(select(Team).order_by(Team.name))).scalars().all()
     return [{"id": str(t.id), "name": t.name, "score": t.score, "swap_available": t.swap_available} for t in teams]
+
+
+def _session_is_active(row: AuthSession, now: datetime) -> bool:
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return row.revoked_at is None and expires_at > now
+
+
+@router.get("/teams/{team_id}/sessions")
+async def list_team_sessions(
+    team_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: Principal = Depends(require_admin),
+):
+    if await session.get(Team, team_id) is None:
+        raise HTTPException(404, "Team not found")
+    rows = (
+        await session.execute(
+            select(AuthSession)
+            .where(AuthSession.team_id == team_id)
+            .order_by(AuthSession.created_at.desc())
+        )
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    controller_sid = await get_controller(str(team_id))
+    payload = [
+        {
+            "session_id": str(row.id),
+            "device_label": row.device_label,
+            "user_agent": row.user_agent,
+            "login_time": row.created_at.isoformat(),
+            "last_seen": row.last_seen_at.isoformat(),
+            "expires_at": row.expires_at.isoformat(),
+            "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+            "active": _session_is_active(row, now),
+            "is_controller": controller_sid == str(row.id),
+        }
+        for row in rows
+    ]
+    return {
+        "team_id": str(team_id),
+        "active_count": sum(1 for row in rows if _session_is_active(row, now)),
+        "controller_session_id": controller_sid,
+        "sessions": payload,
+    }
+
+
+@router.post("/teams/{team_id}/sessions/revoke-all")
+async def revoke_all_team_sessions(
+    team_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: Principal = Depends(require_admin),
+):
+    if await session.get(Team, team_id) is None:
+        raise HTTPException(404, "Team not found")
+    rows = (
+        await session.execute(
+            select(AuthSession)
+            .where(
+                AuthSession.team_id == team_id,
+                AuthSession.revoked_at.is_(None),
+            )
+            .with_for_update()
+        )
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.revoked_at = now
+        row.slot = None
+    await session.commit()
+    return {"ok": True, "revoked_count": len(rows)}
+
+
+@router.post("/teams/{team_id}/sessions/{session_id}/revoke")
+async def revoke_team_session(
+    team_id: UUID,
+    session_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    _: Principal = Depends(require_admin),
+):
+    row = (
+        await session.execute(
+            select(AuthSession)
+            .where(AuthSession.id == session_id, AuthSession.team_id == team_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(404, "Session not found")
+    if row.revoked_at is None:
+        row.revoked_at = datetime.now(timezone.utc)
+        row.slot = None
+        await session.commit()
+    return {"ok": True, "session_id": str(session_id)}
 
 
 @router.patch("/teams/{team_id}/score")

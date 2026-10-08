@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -52,6 +53,25 @@ class Team(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     users: Mapped[list[User]] = relationship(back_populates="team")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint("team_id", "slot", name="uq_auth_session_team_slot"),
+        CheckConstraint("slot IS NULL OR (slot >= 1 AND slot <= 4)", name="ck_auth_session_slot"),
+    )
+
+    id: Mapped[Any] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    user_id: Mapped[Any] = mapped_column(Uuid, ForeignKey("users.id"), nullable=False, index=True)
+    team_id: Mapped[Any | None] = mapped_column(Uuid, ForeignKey("teams.id"), nullable=True, index=True)
+    slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    device_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class Question(Base):
