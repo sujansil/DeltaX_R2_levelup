@@ -151,7 +151,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         }
 
     from app.redisutil import get_frozen_leaderboard
-    frozen_board = await get_frozen_leaderboard()
+    frozen_board = None if rnd.phase == "idle" else await get_frozen_leaderboard()
     if frozen_board is None:
         frozen_board = await leaderboard(session)
         

@@ -4,14 +4,13 @@ from datetime import timezone, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.clock import Clock, SystemClock
 from app.config import get_settings
 from app.models import AuditEvent, Question, RoundState, SwapEvent, Team, TeamQuestion, User
-from app.redisutil import release_controller
 from app.scoring import (
     BOUNTY_COST,
     FREEZE_BONUS_MS,
@@ -242,10 +241,47 @@ async def close_question(session: AsyncSession, actor: str, clock: Clock | None 
     return rnd
 
 
-async def restart_round(session: AsyncSession, actor: str, clock: Clock | None = None) -> RoundState:
+async def restart_round(
+    session: AsyncSession,
+    actor: str,
+    expected_round_version: int,
+    clock: Clock | None = None,
+) -> RoundState:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
     settings = get_settings()
+
+    if rnd.phase == "live":
+        raise EngineError(
+            "live_restart_forbidden",
+            "Cannot restart while a question is live",
+            409,
+        )
+    if rnd.version != expected_round_version:
+        raise EngineError(
+            "stale_round_version",
+            "Round state changed; refresh before restarting",
+            409,
+        )
+
+    previous_phase = rnd.phase
+    previous_round_version = rnd.version
+    teams = (
+        await session.execute(select(Team).order_by(Team.id).with_for_update())
+    ).scalars().all()
+    team_scores_before = {str(team.id): team.score for team in teams}
+    team_question_count = await session.scalar(
+        select(func.count()).select_from(TeamQuestion)
+    )
+    pending_swaps = (
+        await session.execute(
+            select(SwapEvent).where(SwapEvent.applied.is_(False)).with_for_update()
+        )
+    ).scalars().all()
+    cancelled_swap_ids = [str(swap.id) for swap in pending_swaps]
+    for swap in pending_swaps:
+        # Preserve the event as history while removing it from the pending queue.
+        swap.applied = True
 
     await session.execute(delete(TeamQuestion))
     await session.execute(update(Team).values(score=settings.initial_team_score, swap_available=True, version=Team.version + 1))
@@ -259,14 +295,22 @@ async def restart_round(session: AsyncSession, actor: str, clock: Clock | None =
     rnd.reveal_cards = False
     rnd.version += 1
 
-    teams = (await session.execute(select(Team))).scalars().all()
-    for team in teams:
-        try:
-            await release_controller(str(team.id), force=True)
-        except Exception:
-            pass
-
-    await audit(session, actor=actor, kind="restart_round", payload={"initial_team_score": settings.initial_team_score})
+    await audit(
+        session,
+        actor=actor,
+        kind="restart_round",
+        payload={
+            "previous_phase": previous_phase,
+            "previous_round_version": previous_round_version,
+            "team_scores_before": team_scores_before,
+            "team_question_rows_deleted": int(team_question_count or 0),
+            "timestamp": clock.now().isoformat(),
+            "emergency_override": False,
+            "initial_team_score": settings.initial_team_score,
+            "cancelled_pending_swap_count": len(cancelled_swap_ids),
+            "cancelled_pending_swap_ids": cancelled_swap_ids,
+        },
+    )
     await session.flush()
     return rnd
 
@@ -623,14 +667,19 @@ def tq_player_view(
     include_hint: bool,
 ) -> dict[str, Any]:
     elapsed = _elapsed_ms(live_started_at, now) if live_started_at else 0
+    display_elapsed = (
+        row.locked_elapsed_ms
+        if row.locked and row.locked_elapsed_ms is not None
+        else elapsed
+    )
     scoring_ms = (
         scoring_elapsed_ms(
             freeze_elapsed_ms=row.freeze_elapsed_ms,
-            locked_elapsed_ms=elapsed,
-            close_elapsed_ms=elapsed,
+            locked_elapsed_ms=display_elapsed,
+            close_elapsed_ms=display_elapsed,
         )
         if row.freeze
-        else elapsed
+        else display_elapsed
     )
     return {
         "bounty": row.bounty,
@@ -642,6 +691,8 @@ def tq_player_view(
         "deadline_at": row.deadline_at.isoformat() if row.deadline_at else None,
         "kingslayer_eligible": row.kingslayer_eligible,
         "potential_points": potential_points_ms(scoring_ms, row.bounty) if live_started_at else potential_points_ms(0, row.bounty),
+        "freeze_elapsed_ms": row.freeze_elapsed_ms,
+        "locked_elapsed_ms": row.locked_elapsed_ms,
         "graded": row.graded,
         "is_correct": row.is_correct if row.graded else None,
         "points_delta": row.points_delta if row.graded else None,

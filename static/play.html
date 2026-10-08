@@ -1,818 +1,238 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
-  <title>Level Up — Player Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <style>
-    body {
-      overflow-x: hidden;
-      overflow-y: auto;
-    }
-
-    .phase-screen {
-      display: none;
-    }
-
-    .phase-screen.active {
-      display: block;
-    }
-
-    .answer-option.selected {
-      border-color: rgba(34, 211, 238, 0.9);
-      background: rgba(34, 211, 238, 0.08);
-    }
-
-    #leaderboard-container {
-      max-height: 520px;
-      overflow-y: auto;
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07090d" />
+  <title>Delta X — Level Up</title>
+  <link rel="stylesheet" href="/static/player.css" />
 </head>
+<body>
+  <div class="chaos-field" aria-hidden="true"></div>
+  <div class="scanline" aria-hidden="true"></div>
 
-<body class="min-h-screen overflow-x-hidden bg-[#030712] text-white selection:bg-cyan-300 selection:text-black">
-  <div
-    class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_15%_0%,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_88%_10%,rgba(217,70,239,0.1),transparent_28%)]">
-  </div>
-
-  <div class="relative mx-auto min-h-screen max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-    <header class="flex flex-col gap-5 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <div class="flex items-center gap-2">
-          <i data-lucide="sparkles" class="size-4 text-lime-300"></i>
-          <span class="font-mono text-[10px] font-bold uppercase tracking-[0.34em] text-lime-300">Arena // 07</span>
-        </div>
-        <h1 class="mt-3 text-3xl font-black tracking-[-0.04em] text-white sm:text-5xl">Level<span
-            class="text-cyan-300">Up</span> Puzzles</h1>
-        <p id="connection-status" class="mt-2 max-w-xl text-sm font-mono text-orange-400 animate-pulse">Connecting to
-          server...</p>
+  <div class="player-app">
+    <header class="player-topbar">
+      <div class="brand-block">
+        <div class="brand-kicker">DELTA X // LEVEL UP</div>
+        <div class="brand-title">Round 2 Arena</div>
       </div>
 
-      <div class="flex flex-wrap gap-2" aria-label="Current Phase">
-        <div id="indicator-idle"
-          class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">
-          Idle</div>
-        <div id="indicator-topic"
-          class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">
-          Topic</div>
-        <div id="indicator-live"
-          class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">
-          Live</div>
-        <div id="indicator-closed"
-          class="min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition">
-          Closed</div>
+      <div class="topbar-metrics">
+        <div class="metric phase-metric">
+          <span class="metric-label">PHASE</span>
+          <span id="phase-pill" class="phase-pill" data-phase="idle">IDLE</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">QUESTION</span>
+          <strong id="question-number">—</strong>
+        </div>
+        <div class="metric timer-metric">
+          <span class="metric-label">TIME</span>
+          <strong id="top-timer">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">RANK</span>
+          <strong id="team-rank">—</strong>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="mobile-board-button" class="quiet-button compact-only" type="button">Standings</button>
+        <button id="logout-button" class="quiet-button" type="button">Exit</button>
       </div>
     </header>
 
-    <div class="mt-6 grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)_260px] lg:items-start">
-      <div class="order-2 lg:order-1">
-        <section class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-2xl shadow-cyan-950/10 sm:p-5">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="font-mono text-[10px] font-bold uppercase tracking-[0.28em] text-cyan-300">Live standings</p>
-              <h2 class="mt-2 text-xl font-bold tracking-tight text-white">Leaderboard</h2>
-            </div>
-            <i data-lucide="trophy" class="size-5 text-cyan-300"></i>
+    <main class="player-grid">
+      <aside class="leaderboard-panel desktop-board panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">PUBLISHED STANDINGS</span>
+            <h2>Leaderboard</h2>
           </div>
-          <div class="mt-5 flex flex-col gap-2" id="leaderboard-container"></div>
-        </section>
-      </div>
+          <span class="panel-code">LB/16</span>
+        </div>
+        <div id="desktop-leaderboard" class="leaderboard-list"></div>
+        <div class="panel-footnote">Leaderboard updates only when the host publishes a snapshot.</div>
+      </aside>
 
-      <section
-        class="order-1 rounded-2xl border border-cyan-300/20 bg-[#07111f]/90 p-5 shadow-[0_0_70px_rgba(34,211,238,0.08)] sm:p-8 lg:order-2 lg:min-h-[590px]">
-        <div class="flex items-center justify-between border-b border-white/10 pb-4">
-          <div class="flex items-center gap-2">
-            <span class="size-2 animate-pulse rounded-full bg-lime-300 shadow-[0_0_12px_#bef264]"></span>
-            <span id="phase-label"
-              class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-white/50">Waiting</span>
+      <section class="arena panel">
+        <div class="arena-rail">
+          <div>
+            <span id="phase-copy" class="eyebrow">WAITING</span>
+            <span id="connection-status" class="connection-state" data-state="connecting">CONNECTING</span>
           </div>
-          <span id="question-meta" class="font-mono text-xs text-white/40">Q —</span>
+          <div class="controller-rail-actions">
+            <div id="controller-badge" class="controller-badge" data-active="false">VIEW ONLY</div>
+            <button id="mobile-controller-button" class="mobile-controller-button" type="button">CLAIM CONTROL</button>
+          </div>
         </div>
 
-        <div class="flex min-h-[500px] flex-col justify-center py-8">
-          <div id="screen-idle" class="phase-screen text-center">
-            <i data-lucide="timer-reset" class="mx-auto size-10 text-cyan-300"></i>
-            <p class="mt-7 animate-pulse font-mono text-2xl font-bold tracking-[0.18em] text-cyan-200 sm:text-4xl">
-              WAITING FOR EVENT...</p>
-            <p class="mt-4 text-sm text-white/40">The host is preparing your first challenge.</p>
+        <div id="screen-idle" class="phase-screen active">
+          <div class="idle-mark">Δx</div>
+          <div class="idle-copy">
+            <span class="eyebrow">SYSTEM ARMED</span>
+            <h1>Waiting for the next signal.</h1>
+            <p>The host will reveal the topic before the question goes live.</p>
           </div>
+        </div>
 
-          <div id="screen-topic" class="phase-screen">
-            <p class="font-mono text-xs uppercase tracking-[0.28em] text-fuchsia-300">Incoming topic</p>
-            <h2 id="topic-title" class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">Loading...</h2>
-            <p id="topic-desc" class="mt-6 max-w-lg text-white/50">Get ready. The next round will test your knowledge.
-            </p>
+        <div id="screen-topic" class="phase-screen">
+          <div class="topic-shell">
+            <span class="eyebrow">NEXT DOMAIN</span>
+            <h1 id="topic-title">—</h1>
+            <div class="topic-line"></div>
+            <p>Use this window to decide whether to activate Bounty before the question starts.</p>
+            <div class="topic-countdown">
+              <span>TOPIC WINDOW</span>
+              <strong id="topic-timer">—</strong>
+            </div>
           </div>
+        </div>
 
-          <div id="screen-live" class="phase-screen">
-            <div class="flex items-end justify-between">
-              <div>
-                <p class="font-mono text-[10px] font-bold uppercase tracking-[0.25em] text-fuchsia-300">Active Question
-                </p>
-                <p class="mt-3 text-sm text-white/50">Make your selection</p>
-              </div>
-              <div class="text-right">
-                <p id="timer-display" class="font-mono text-3xl font-black tabular-nums text-lime-300">00:00</p>
-                <p class="font-mono text-[9px] uppercase tracking-widest text-white/40">remaining</p>
-              </div>
+        <div id="screen-live" class="phase-screen">
+          <div class="question-head">
+            <div>
+              <span class="eyebrow">ACTIVE QUESTION</span>
+              <div id="question-topic" class="topic-tag">—</div>
             </div>
-
-            <div class="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div id="timer-bar"
-                class="h-full rounded-full bg-gradient-to-r from-lime-300 via-cyan-300 to-fuchsia-400 transition-all"
-                style="width: 0%"></div>
-            </div>
-
-            <h2 id="question-text" class="mt-9 text-2xl font-bold leading-tight tracking-tight text-white sm:text-4xl">
-              Waiting for the current question...</h2>
-            <img id="question-media" class="mt-6 max-h-[300px] w-auto rounded-xl object-contain hidden border border-white/10 shadow-lg" src="" alt="Question media" />
-
-            <div id="hint-container" class="mt-5 hidden rounded-xl border border-violet-400/25 bg-violet-400/10 p-4 text-sm text-violet-200 shadow-[0_0_15px_rgba(139,92,246,0.1)] transition-all">
-              <div class="flex items-center gap-2 mb-2">
-               <i data-lucide="eye" class="size-4 text-violet-300"></i>
-              <span class="font-mono text-[10px] font-bold uppercase tracking-widest text-violet-300">Peek Activated - Hint Unlocked</span>
-              </div>
-              <p id="hint-text" class="text-violet-100 font-medium"></p>
-            </div>
-
-            <div id="answers-container" class="mt-7"></div>
-
-            <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <button id="submit-btn" disabled
-                class="flex min-h-14 items-center justify-center gap-2 rounded-xl bg-lime-300 px-6 text-sm font-black uppercase tracking-widest text-black shadow-[0_0_28px_rgba(190,242,100,0.2)] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-40">
-                Submit answer <i data-lucide="arrow-right" class="size-4"></i>
-              </button>
+            <div class="question-timer">
+              <strong id="live-timer">—</strong>
+              <span>remaining</span>
             </div>
           </div>
 
-          <div id="screen-closed" class="phase-screen text-center">
-            <i data-lucide="trophy" class="mx-auto size-14 text-lime-300"></i>
-            <p class="mt-7 font-mono text-xs font-bold uppercase tracking-[0.3em] text-cyan-300">Session complete</p>
-            <h2 class="mt-4 text-4xl font-black tracking-tight sm:text-6xl">THANK YOU<br /><span
-                class="text-fuchsia-300">FOR PLAYING!</span></h2>
-            <p class="mt-6 text-white/50">Final score: <strong id="final-score" class="text-lime-300">0 pts</strong></p>
+          <div class="timer-track" aria-hidden="true"><div id="timer-bar" class="timer-fill"></div></div>
+
+          <div class="question-body">
+            <h1 id="question-text">Waiting for question...</h1>
+            <img id="question-media" class="question-media hidden" alt="Question media" />
+          </div>
+
+          <div id="hint-box" class="hint-box hidden">
+            <div class="hint-label">PEEK // HINT UNLOCKED</div>
+            <div id="hint-text" class="hint-text"></div>
+          </div>
+
+          <div id="answers-container" class="answers-grid"></div>
+
+          <div class="potential-panel">
+            <div class="potential-copy">
+              <span id="potential-label">POTENTIAL POINTS</span>
+              <strong id="potential-value">—</strong>
+            </div>
+            <div class="potential-track"><div id="potential-bar" class="potential-fill"></div></div>
+            <div id="potential-note" class="potential-note">Locks at the value when your answer is submitted.</div>
+          </div>
+
+          <div class="answer-footer">
+            <div id="answer-status" class="answer-status">Choose an option.</div>
+            <button id="submit-button" class="primary-action" type="button" disabled>LOCK ANSWER</button>
+          </div>
+        </div>
+
+        <div id="screen-closed" class="phase-screen">
+          <div class="result-shell">
+            <span class="eyebrow">QUESTION CLOSED</span>
+            <div id="result-symbol" class="result-symbol">—</div>
+            <h1 id="result-title">Awaiting next topic.</h1>
+            <p id="result-copy">Your score has been recorded.</p>
+            <div class="result-metrics">
+              <div><span>DELTA</span><strong id="result-delta">—</strong></div>
+              <div><span>TOTAL</span><strong id="result-total">—</strong></div>
+            </div>
           </div>
         </div>
       </section>
 
-      <div class="order-3">
-        <aside class="flex flex-col gap-4">
-          <section
-            class="rounded-2xl border border-fuchsia-400/20 bg-gradient-to-br from-fuchsia-400/10 to-transparent p-5">
-            <div class="flex items-center gap-2 text-fuchsia-200">
-              <i data-lucide="shield" class="size-4"></i>
-              <span class="font-mono text-[10px] font-bold uppercase tracking-[0.25em]">Your squad</span>
-            </div>
-            <p id="team-name" class="mt-5 text-2xl font-black tracking-tight text-white">PLAYER</p>
-            <div class="mt-4 flex items-end justify-between border-t border-white/10 pt-4">
-              <div>
-                <p class="font-mono text-[10px] uppercase tracking-widest text-white/40">Current score</p>
-                <p id="team-score" class="mt-1 font-mono text-2xl font-bold text-lime-300">0</p>
-              </div>
-              <i data-lucide="flame" class="size-6 text-fuchsia-300"></i>
-            </div>
-          </section>
+      <aside class="arsenal panel">
+        <div class="team-card">
+          <span class="eyebrow">TEAM CHANNEL</span>
+          <h2 id="team-name">PLAYER</h2>
+          <div class="team-score-line">
+            <span>Score</span>
+            <strong id="team-score">0</strong>
+          </div>
+        </div>
 
-          <section class="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-            <div class="space-y-2">
-              <button id="controller-btn"
-                class="w-full rounded-xl border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 font-bold text-cyan-200">Claim
-                controller</button>
-              <button id="release-btn"
-                class="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/80">Release
-                controller</button>
-              <button id="bounty-btn"
-                class="w-full rounded-xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 font-bold text-amber-200">Use
-                Bounty</button>
-              <button id="freeze-btn"
-                class="w-full rounded-xl border border-sky-300/40 bg-sky-300/10 px-3 py-2 font-bold text-sky-200">Use
-                Freeze</button>
-              <button id="peek-btn"
-                class="w-full rounded-xl border border-violet-300/40 bg-violet-300/10 px-3 py-2 font-bold text-violet-200">Use
-                Peek</button>
-            </div>
+        <div class="controller-card">
+          <div>
+            <span class="eyebrow">CONTROL TOKEN</span>
+            <div id="controller-copy">No device currently controls this team.</div>
+          </div>
+          <button id="controller-button" class="secondary-action" type="button">CLAIM CONTROL</button>
+          <button id="release-button" class="text-action" type="button">Release control</button>
+        </div>
 
-            <div class="mt-4">
-              <label class="text-[10px] uppercase tracking-widest text-white/40">Swap with</label>
-              <select id="swap-target"
-                class="mt-2 w-full rounded-lg border border-white/10 bg-slate-900 p-2 text-sm text-white"></select>
-              <button id="swap-btn"
-                class="mt-2 w-full rounded-xl border border-fuchsia-300/50 bg-fuchsia-400/10 px-3 py-2 font-bold text-fuchsia-200">Swap</button>
-            </div>
+        <div class="power-section">
+          <div class="power-heading">
+            <span class="eyebrow">POWER-UPS</span>
+            <span id="power-lock-copy">HOST CONTROLLED</span>
+          </div>
+          <div class="power-grid desktop-power-grid">
+            <button id="bounty-button" class="power-card" data-card="bounty" type="button">
+              <span class="power-code">×3</span><strong>Bounty</strong><small>2000 pts</small>
+            </button>
+            <button id="freeze-button" class="power-card" data-card="freeze" type="button">
+              <span class="power-code">+30</span><strong>Freeze</strong><small>750 pts</small>
+            </button>
+            <button id="peek-button" class="power-card" data-card="peek" type="button">
+              <span class="power-code">◉</span><strong>Peek</strong><small>750 pts</small>
+            </button>
+            <button id="swap-button" class="power-card" data-card="swap" type="button">
+              <span class="power-code">⇄</span><strong>Swap</strong><small>one use</small>
+            </button>
+          </div>
+        </div>
+      </aside>
+    </main>
 
-            <div id="player-meta" class="mt-4 text-xs text-white/60 font-mono"></div>
-          </section>
-        </aside>
-      </div>
-    </div>
+    <nav class="mobile-power-dock" aria-label="Power ups">
+      <button id="mobile-bounty-button" class="dock-card" type="button"><span>×3</span>Bounty</button>
+      <button id="mobile-freeze-button" class="dock-card" type="button"><span>+30</span>Freeze</button>
+      <button id="mobile-peek-button" class="dock-card" type="button"><span>◉</span>Peek</button>
+      <button id="mobile-swap-button" class="dock-card" type="button"><span>⇄</span>Swap</button>
+    </nav>
   </div>
 
+  <div id="leaderboard-drawer" class="drawer" aria-hidden="true">
+    <button class="drawer-backdrop" data-close-drawer aria-label="Close leaderboard"></button>
+    <section class="drawer-sheet">
+      <div class="drawer-head">
+        <div><span class="eyebrow">PUBLISHED STANDINGS</span><h2>Leaderboard</h2></div>
+        <button class="quiet-button" data-close-drawer type="button">Close</button>
+      </div>
+      <div id="mobile-leaderboard" class="leaderboard-list"></div>
+    </section>
+  </div>
+
+  <div id="swap-modal" class="modal" aria-hidden="true">
+    <button class="modal-backdrop" data-close-swap aria-label="Close swap window"></button>
+    <section class="modal-card">
+      <span class="eyebrow">ONE-TIME ACTION</span>
+      <h2>Choose swap target</h2>
+      <p>Your answer must already be locked. The swap is applied by the engine when the question closes.</p>
+      <label for="swap-target">Target team</label>
+      <select id="swap-target"></select>
+      <div class="modal-actions">
+        <button class="quiet-button" data-close-swap type="button">Cancel</button>
+        <button id="confirm-swap-button" class="primary-action" type="button">QUEUE SWAP</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="session-modal" class="modal critical-modal" aria-hidden="true">
+    <section class="modal-card">
+      <span class="eyebrow">SESSION ENDED</span>
+      <h2>This device is no longer authenticated.</h2>
+      <p>Your session may have expired or been revoked by an administrator.</p>
+      <button id="session-login-button" class="primary-action" type="button">RETURN TO LOGIN</button>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
   <script src="/static/common.js"></script>
-  <script>
-    lucide.createIcons();
-
-    const authState = auth();
-    if (!authState || !authState.access_token) {
-      window.location.href = "/";
-    }
-
-    let gameState = null;
-    let selectedChoice = null;
-    let selectedMulti = new Set();
-    let currentQuestionId = null;
-    let liveTimerHandle = null;
-    let serverClockAnchor = null;
-    let timerAnimationFrame = null;
-    let controllerHeartbeatHandle = null;
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      document.getElementById("team-name").textContent = authState.team_name || authState.username || "PLAYER";
-
-      const ws = connectWs((message) => {
-        if (message && (message.type === "state" || message.type === "state_tick" || message.type === "leaderboard" || message.type === "controller" || message.type === "controller_released" || message.type === "locked" || message.type === "swap_queued" || message.type === "swap_applied" || message.type === "card")) {
-          refreshState();
-        }
-      });
-
-      if (ws) {
-        ws.onopen = () => {
-          const status = document.getElementById("connection-status");
-          status.textContent = "Connected and waiting for host...";
-          status.className = "mt-2 max-w-xl text-sm font-mono text-[#4ade80]";
-        };
-      }
-
-      await refreshState();
-    });
-
-    async function refreshState() {
-      gameState = await api("/api/v1/play/state");
-      renderState(gameState);
-      syncControllerHeartbeat(gameState);
-    }
-
-    function syncControllerHeartbeat(state) {
-      if (controllerHeartbeatHandle) {
-        clearInterval(controllerHeartbeatHandle);
-        controllerHeartbeatHandle = null;
-      }
-
-      if (!state?.i_am_controller) {
-        return;
-      }
-
-      controllerHeartbeatHandle = setInterval(async () => {
-        try {
-          await api("/api/v1/play/controller/heartbeat", { method: "POST" });
-        } catch (err) {
-          try {
-            await refreshState();
-          } catch (_) {
-            // The UI will re-render from the next successful state update.
-          }
-        }
-      }, 25000);
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
-    function setPhase(phase) {
-      const nextPhase = phase || "idle";
-      document.querySelectorAll(".phase-screen").forEach((el) => el.classList.remove("active"));
-      const active = document.getElementById("screen-" + nextPhase);
-      if (active) active.classList.add("active");
-
-      const labelMap = {
-        idle: "Waiting",
-        topic: "Incoming Topic",
-        live: "Live Transmission",
-        closed: "Closed",
-      };
-      const phaseLabel = document.getElementById("phase-label");
-      if (phaseLabel) phaseLabel.textContent = labelMap[nextPhase] || "Waiting";
-
-      ["idle", "topic", "live", "closed"].forEach((p) => {
-        const indicator = document.getElementById("indicator-" + p);
-        if (!indicator) return;
-        indicator.className = p === nextPhase
-          ? "min-h-10 flex items-center rounded-full border border-cyan-300 bg-cyan-300 px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-black transition"
-          : "min-h-10 flex items-center rounded-full border border-white/15 bg-white/[0.04] px-4 font-mono text-[10px] font-bold uppercase tracking-widest text-white/50 transition";
-      });
-    }
-
-    // Keep track of the current scores so we know when to animate a change
-    let currentScores = new Map();
-
-    function renderLeaderboard(rows) {
-      const container = document.getElementById("leaderboard-container");
-      
-      if (!rows || !rows.length) {
-        container.innerHTML = '<div class="rounded-xl border border-white/10 bg-black/20 px-3 py-4 text-sm text-white/50">No standings yet.</div>';
-        container.style.height = "auto";
-        return;
-      }
-
-      // Remove the old flex classes so we can use absolute positioning for sliding animations
-      container.classList.remove("flex", "flex-col", "gap-2");
-      container.style.position = "relative";
-
-      const ROW_HEIGHT = 72; // 64px row + 8px gap
-      
-      // Ensure the incoming rows are sorted by score highest to lowest
-      const topRows = [...rows].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 16);
-      
-      // Set the container height dynamically based on the number of teams
-      container.style.height = `${topRows.length * ROW_HEIGHT}px`;
-
-      const maxScore = Math.max(1, Math.max(...topRows.map((t) => t.score || 0)));
-      const seenIds = new Set();
-
-      topRows.forEach((team, idx) => {
-        seenIds.add(team.id);
-        
-        let el = document.getElementById(`board-team-${team.id}`);
-        let oldScore = currentScores.has(team.id) ? currentScores.get(team.id) : null;
-        let targetScore = Number(team.score || 0);
-
-        // If the team row doesn't exist yet, create it
-        if (!el) {
-          el = document.createElement("div");
-          el.id = `board-team-${team.id}`;
-          
-          // Using Tailwind absolute positioning and 1000ms CSS transitions for the sliding effect
-          el.className = "absolute left-0 right-0 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-black/20 px-3 py-3 transition-all duration-1000 ease-in-out";
-          el.style.opacity = "0";
-          el.style.transform = `translateY(${idx * ROW_HEIGHT}px) scale(0.95)`;
-          
-          el.innerHTML = `
-            <span class="rank-badge grid size-7 shrink-0 place-items-center rounded-lg font-mono text-xs font-bold bg-lime-300 text-black">${idx + 1}</span>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold text-white">${escapeHtml(team.name)}</p>
-              <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
-                <div class="progress-bar h-full rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400 transition-all duration-1000 ease-in-out" style="width: 0%"></div>
-              </div>
-            </div>
-            <span class="score-display font-mono text-xs font-bold text-cyan-200">0</span>
-          `;
-          container.appendChild(el);
-          
-          // Trigger reflow to ensure the entrance animation plays
-          void el.offsetWidth;
-          el.style.opacity = "1";
-        }
-
-        // 1. Animate the Vertical Sliding Rank Position
-        el.style.transform = `translateY(${idx * ROW_HEIGHT}px) scale(1)`;
-        el.querySelector(".rank-badge").textContent = idx + 1;
-
-        // 2. Animate the Progress Bar
-        const progress = Math.min(100, (targetScore / maxScore) * 100);
-        el.querySelector(".progress-bar").style.width = `${progress}%`;
-
-        // 3. Animate the Number Counting Up/Down
-        if (oldScore !== targetScore) {
-          if (oldScore === null) {
-            el.querySelector(".score-display").textContent = targetScore.toLocaleString();
-            currentScores.set(team.id, targetScore);
-          } else {
-            animateValue(el.querySelector(".score-display"), oldScore, targetScore, 1000);
-            currentScores.set(team.id, targetScore);
-          }
-        }
-      });
-
-      // Clean up any teams that were removed from the leaderboard
-      Array.from(container.children).forEach(child => {
-        if (child.id && child.id.startsWith("board-team-")) {
-          const teamId = child.id.replace("board-team-", "");
-          if (!seenIds.has(teamId)) {
-            child.style.opacity = "0";
-            setTimeout(() => child.remove(), 1000);
-          }
-        }
-      });
-    }
-
-    // Helper function that smoothly ticks a number up or down over a set duration
-    function animateValue(obj, start, end, duration) {
-      let startTimestamp = null;
-      const step = (timestamp) => {
-        if (!startTimestamp) startTimestamp = timestamp;
-        // Calculate progress percentage
-        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        // Apply an "ease-out" math curve so the counting slows down naturally at the end
-        const easeOutQuart = 1 - Math.pow(1 - progress, 4); 
-        const current = Math.floor(start + easeOutQuart * (end - start));
-        
-        obj.textContent = current.toLocaleString();
-        
-        if (progress < 1) {
-          window.requestAnimationFrame(step);
-        } else {
-          obj.textContent = end.toLocaleString();
-        }
-      };
-      window.requestAnimationFrame(step);
-    }
-
-    function renderAnswerOptions(question, me = {}) {
-      const container = document.getElementById("answers-container");
-      if (!question) {
-        container.innerHTML = "";
-        return;
-      }
-
-      const qtype = question.type;
-      const options = question.options || [];
-      const locked = !!me.locked;
-
-      if (!['mcq_single', 'mcq_multi'].includes(qtype)) {
-        container.innerHTML = `
-          <div class="rounded-xl border border-amber-400/25 bg-amber-400/10 p-4 text-sm text-amber-100">
-            This game mode only supports MCQ questions.
-          </div>
-        `;
-        return;
-      }
-
-      container.innerHTML = options.map((option, index) => {
-        const id = option.id || String.fromCharCode(97 + index);
-        const isSelected = qtype === "mcq_single"
-          ? selectedChoice === id
-          : selectedMulti.has(id);
-
-        // Generate the image tag if a URL exists
-        const mediaHtml = option.media_url 
-          ? `<img src="${escapeHtml(option.media_url)}" class="mt-4 max-h-32 rounded-lg border border-white/10 shadow-sm object-contain" alt="Option Image" />` 
-          : "";
-
-        // Notice how ${mediaHtml} is now injected right before the closing </button>
-        // Also changed flex classes to 'flex-col justify-center' so it stacks properly
-        return `
-          <button
-            type="button"
-            data-id="${id}"
-            ${locked ? "disabled" : ""}
-            class="answer-option ${isSelected ? "selected" : ""} flex min-h-[76px] w-full flex-col justify-center gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-left transition hover:border-white/30 hover:bg-white/[0.07] ${locked ? "cursor-not-allowed opacity-75" : ""}"
-            onclick="${locked ? "" : (qtype === "mcq_single" ? `chooseSingle('${id}')` : `toggleMulti('${id}')`)}"
-          >
-            <div class="flex items-center gap-4 w-full">
-              <span class="grid size-9 shrink-0 place-items-center rounded-lg font-mono text-sm font-black bg-white/10 text-cyan-200">${String(id).toUpperCase()}</span>
-              <span class="block font-semibold text-white">${escapeHtml(option.text)}</span>
-            </div>
-            ${mediaHtml}
-          </button>
-        `;
-      }).join("");
-    }
-
-    function chooseSingle(choiceId) {
-      selectedChoice = choiceId;
-      document.querySelectorAll(".answer-option").forEach((el) => {
-        el.classList.toggle("selected", el.dataset.id === choiceId);
-      });
-      document.getElementById("submit-btn").disabled = false;
-    }
-
-    function toggleMulti(choiceId) {
-      if (selectedMulti.has(choiceId)) {
-        selectedMulti.delete(choiceId);
-      } else {
-        selectedMulti.add(choiceId);
-      }
-
-      document.querySelectorAll(".answer-option").forEach((el) => {
-        el.classList.toggle("selected", selectedMulti.has(el.dataset.id));
-      });
-
-      document.getElementById("submit-btn").disabled = selectedMulti.size === 0;
-    }
-
-    function renderState(state) {
-      const q = state?.question || null;
-      const me = state?.me || {};
-      const team = state?.team || {};
-      restoreLockedAnswerState(q, me);
-
-      if (state.phase === "topic" || state.phase === "live") {
-        renderAnswerOptions(q, me);
-        syncLiveTimer(state);
-      } else {
-        syncLiveTimer(null);
-      }
-
-      setPhase(state.phase || "idle");
-      renderLeaderboard(state.leaderboard || []);
-
-      document.getElementById("team-score").textContent = Number(team.score || 0).toLocaleString();
-      document.getElementById("team-name").textContent = team.name || "PLAYER";
-
-      document.getElementById("player-meta").textContent =
-        `Controller: ${state.i_am_controller ? "You" : (state.controller_session_id ? "Other device" : "None")} | ` +
-        `Locked: ${me.locked ? "yes" : "no"} | ` +
-        `Bounty: ${me.bounty ? "used" : "ready"} | ` +
-        `Peek: ${me.peek ? "used" : "ready"} | ` +
-        `Freeze: ${me.freeze ? "used" : "ready"}`;
-
-      syncControllerHeartbeat(state);
-
-      const controllerBtn = document.getElementById("controller-btn");
-      const releaseBtn = document.getElementById("release-btn");
-      const bountyBtn = document.getElementById("bounty-btn");
-      const freezeBtn = document.getElementById("freeze-btn");
-      const peekBtn = document.getElementById("peek-btn");
-      const swapBtn = document.getElementById("swap-btn");
-      const swapTarget = document.getElementById("swap-target");
-
-      controllerBtn.disabled = !!state.i_am_controller;
-      controllerBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${state.i_am_controller ? "border border-emerald-300/50 bg-emerald-400/10 text-emerald-200" : "border border-cyan-300/40 bg-cyan-300/10 text-cyan-200"}`;
-      controllerBtn.textContent = state.i_am_controller ? "You are controller" : "Claim controller";
-
-      releaseBtn.disabled = !state.i_am_controller;
-      releaseBtn.className = `w-full rounded-xl px-3 py-2 text-sm ${state.i_am_controller ? "border border-white/10 bg-white/[0.03] text-white/80" : "border border-white/10 bg-slate-900/40 text-white/30 cursor-not-allowed"}`;
-
-      bountyBtn.disabled = !state.i_am_controller || state.phase !== "topic" || !!me.bounty;
-      bountyBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${bountyBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-amber-300/40 bg-amber-300/10 text-amber-200"}`;
-
-      freezeBtn.disabled = !state.i_am_controller || !!me.freeze;
-      freezeBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${freezeBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-sky-300/40 bg-sky-300/10 text-sky-200"}`;
-
-      peekBtn.disabled = !state.i_am_controller || !!me.peek;
-      peekBtn.className = `w-full rounded-xl px-3 py-2 font-bold ${peekBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-violet-300/40 bg-violet-300/10 text-violet-200"}`;
-
-      const teams = state?.leaderboard?.filter((t) => t.id !== me.id);
-      swapTarget.innerHTML = teams.length
-        ? teams.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")
-        : "<option value=\"\">No other teams</option>";
-
-      swapBtn.disabled = !state.i_am_controller || team.swap_available === false || !!me.swap_used || !teams.length;
-      swapBtn.className = `mt-2 w-full rounded-xl px-3 py-2 font-bold ${swapBtn.disabled ? "border border-white/10 bg-slate-800 text-white/30 cursor-not-allowed" : "border border-fuchsia-300/50 bg-fuchsia-400/10 text-fuchsia-200"}`;
-
-      if (state.phase === "closed") {
-        document.getElementById("final-score").textContent = `${Number(team.score || 0).toLocaleString()} pts`;
-      }
-
-      if (!q) {
-        document.getElementById("question-meta").textContent = "Q —";
-        document.getElementById("question-text").textContent = "No active question.";
-        document.getElementById("answers-container").innerHTML = "";
-        document.getElementById("submit-btn").disabled = true;
-        return;
-      }
-
-      document.getElementById("question-meta").textContent = `Q${q.index || ""}`;
-      document.getElementById("question-text").textContent = q.prompt || "";
-      document.getElementById("topic-title").textContent = q.topic || "Round topic";
-      document.getElementById("topic-desc").textContent = q.prompt || "A new challenge is ready.";
-
-      const qMedia = document.getElementById("question-media");
-      if (q.media_url && (state.phase === "live" || state.phase === "closed")) {
-        qMedia.src = q.media_url;
-        qMedia.classList.remove("hidden");
-      } else {
-        qMedia.classList.add("hidden");
-        qMedia.src = "";
-      }
-
-      const hintContainer = document.getElementById("hint-container");
-      const hintText = document.getElementById("hint-text");
-      if (me.hint && state.phase === "live") {
-        hintText.textContent = me.hint;
-        hintContainer.classList.remove("hidden");
-        lucide.createIcons(); // refresh the eye icon
-      } else {
-        hintContainer.classList.add("hidden");
-        hintText.textContent = "";
-      }
-
-      if (state.phase === "topic") {
-        document.getElementById("question-text").textContent = "The host has revealed the topic.";
-      }
-
-      if (state.phase === "live") {
-        const submitBtn = document.getElementById("submit-btn");
-        submitBtn.disabled = !state.i_am_controller || me.locked || !canSubmitCurrentQuestion(q);
-        submitBtn.textContent = me.locked ? "Locked" : "Lock answer";
-        submitBtn.innerHTML = me.locked
-          ? "Locked"
-          : 'Lock answer <i data-lucide="arrow-right" class="size-4"></i>';
-        lucide.createIcons();
-      }
-    }
-
-    function canSubmitCurrentQuestion(question) {
-      if (!question) return false;
-      const type = question.type;
-      if (type === "mcq_single") return !!selectedChoice;
-      if (type === "mcq_multi") return selectedMulti.size > 0;
-      return false;
-    }
-
-    async function submitAnswer() {
-      const state = gameState;
-      const q = state?.question;
-      if (!q) return;
-
-      let answer = null;
-
-      if (q.type === "mcq_single") {
-        answer = { option_id: selectedChoice };
-      } else if (q.type === "mcq_multi") {
-        answer = { option_ids: Array.from(selectedMulti).sort() };
-      }
-
-      if (!answer) return;
-
-      try {
-        await api("/api/v1/play/lock", {
-          method: "POST",
-          body: JSON.stringify({ answer }),
-        });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    document.getElementById("submit-btn").onclick = submitAnswer;
-
-    document.getElementById("controller-btn").onclick = async () => {
-      try {
-        await api("/api/v1/play/controller/claim", { method: "POST" });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    document.getElementById("release-btn").onclick = async () => {
-      try {
-        await api("/api/v1/play/controller/release", { method: "POST" });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    document.getElementById("bounty-btn").onclick = async () => {
-      try {
-        await api("/api/v1/play/bounty", { method: "POST" });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    document.getElementById("freeze-btn").onclick = async () => {
-      try {
-        await api("/api/v1/play/freeze", { method: "POST" });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    document.getElementById("peek-btn").onclick = async () => {
-      try {
-        await api("/api/v1/play/peek", { method: "POST" });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-    document.getElementById("swap-btn").onclick = async () => {
-      const select = document.getElementById("swap-target");
-      const targetId = select.value;
-      if (!targetId) {
-        alert("Choose a team to swap with.");
-        return;
-      }
-
-      try {
-        await api("/api/v1/play/swap", {
-          method: "POST",
-          body: JSON.stringify({ target_team_id: targetId }),
-        });
-        await refreshState();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-
-
-    function formatSeconds(seconds) {
-      const n = Math.max(0, Number(seconds || 0));
-      return `${n}s`;
-    }
-
-    function syncServerClock(value) {
-      if (!value) return Date.now();
-
-      const baseMs = new Date(value).getTime();
-      if (Number.isNaN(baseMs)) return Date.now();
-
-      if (!serverClockAnchor || serverClockAnchor.base !== value) {
-        serverClockAnchor = { base: value, clientNow: Date.now() };
-      }
-
-      return baseMs + (Date.now() - serverClockAnchor.clientNow);
-    }
-
-    function restoreLockedAnswerState(question, me = {}) {
-      if (!question) {
-        selectedChoice = null;
-        selectedMulti = new Set();
-        currentQuestionId = null;
-        return;
-      }
-
-      if (currentQuestionId !== null && question.id !== currentQuestionId) {
-        selectedChoice = null;
-        selectedMulti = new Set();
-      }
-      currentQuestionId = question.id;
-
-      if (me && me.locked && me.answer) {
-        selectedChoice = null;
-        selectedMulti = new Set();
-
-        if (question.type === "mcq_single") {
-          selectedChoice = me.answer.option_id || null;
-        } else if (question.type === "mcq_multi") {
-          selectedMulti = new Set(Array.isArray(me.answer.option_ids) ? me.answer.option_ids : []);
-        }
-        return;
-      }
-
-      if (question.type === "mcq_single" && selectedChoice === null && me?.answer?.option_id) {
-        selectedChoice = me.answer.option_id;
-      }
-      if (question.type === "mcq_multi" && selectedMulti.size === 0 && Array.isArray(me?.answer?.option_ids)) {
-        selectedMulti = new Set(me.answer.option_ids);
-      }
-    }
-
-    function updateTimerVisuals(state) {
-      const timer = document.getElementById("timer-display");
-      const bar = document.getElementById("timer-bar");
-      const total = Number(state?.timer_total_sec || 0);
-      const remaining = computeRemainingSeconds(state);
-      const progress = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
-
-      if (timer) {
-        timer.textContent = formatSeconds(remaining);
-      }
-
-      if (bar) {
-        bar.style.transition = "width 120ms linear";
-        bar.style.width = `${progress}%`;
-      }
-    }
-
-    function computeRemainingSeconds(state) {
-      if (!state || !state.deadline_ms) return 0;
-      const now = syncServerClock(state.server_now);
-      return Math.max(0, Math.ceil((Number(state.deadline_ms) - now) / 1000));
-    }
-
-    function syncLiveTimer(state) {
-      if (timerAnimationFrame) {
-        cancelAnimationFrame(timerAnimationFrame);
-        timerAnimationFrame = null;
-      }
-
-      if (!state || (state.phase !== "topic" && state.phase !== "live")) {
-        updateTimerVisuals(null);
-        return;
-      }
-
-      const tick = () => {
-        updateTimerVisuals(state);
-
-        if (computeRemainingSeconds(state) <= 0) {
-          timerAnimationFrame = null;
-          refreshState();
-          return;
-        }
-
-        timerAnimationFrame = requestAnimationFrame(tick);
-      };
-
-      updateTimerVisuals(state);
-      timerAnimationFrame = requestAnimationFrame(tick);
-    }
-
-  </script>
+  <script src="/static/player.js"></script>
 </body>
-
 </html>

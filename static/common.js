@@ -2,28 +2,41 @@ function auth() {
   const raw = localStorage.getItem("levelup_auth");
   return raw ? JSON.parse(raw) : null;
 }
+
 function saveAuth(data) {
   localStorage.setItem("levelup_auth", JSON.stringify(data));
 }
+
 function clearAuth() {
   localStorage.removeItem("levelup_auth");
 }
+
 async function api(path, opts = {}) {
   const a = auth();
   const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
   if (a && a.access_token && !path.endsWith("/login")) {
     headers.Authorization = "Bearer " + a.access_token;
   }
+
   const res = await fetch(path, { ...opts, headers });
   const text = await res.text();
   let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = { message: text }; }
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = { message: text };
+  }
+
   if (!res.ok) {
     const msg = (body && (body.message || body.detail?.message || body.detail)) || res.statusText;
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    const err = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    err.status = res.status;
+    err.body = body;
+    throw err;
   }
   return body;
 }
+
 function connectWs(onMsg) {
   const a = auth();
   if (!a) return null;
@@ -40,7 +53,11 @@ function connectWs(onMsg) {
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    if (ev.code === 4401) {
+      window.dispatchEvent(new CustomEvent("levelup:session-invalid"));
+      return;
+    }
     setTimeout(() => {
       if (!auth()) return;
       connectWs(onMsg);

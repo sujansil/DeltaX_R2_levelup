@@ -82,6 +82,12 @@ async def set_frozen_leaderboard(payload: list[dict[str, Any]]) -> None:
     r = await get_redis()
     await r.set("frozen_leaderboard", json.dumps(payload))
 
+
+async def clear_frozen_leaderboard() -> None:
+    r = await get_redis()
+    await r.delete("frozen_leaderboard")
+
+
 async def get_frozen_leaderboard() -> list[dict[str, Any]] | None:
     r = await get_redis()
     data = await r.get("frozen_leaderboard")

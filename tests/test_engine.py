@@ -21,6 +21,7 @@ from app.engine import (
     start_question,
     try_autostart,
     try_autoclose,
+    tq_player_view,
     use_freeze,
     use_peek,
     use_swap,
@@ -58,6 +59,30 @@ async def ctx():
         await session.commit()
         yield session, clock, t1, t2, q
     await eng.dispose()
+
+
+
+def test_player_view_potential_points_stop_at_locked_elapsed():
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    row = TeamQuestion(
+        team_id=uuid4(),
+        question_id=uuid4(),
+        locked=True,
+        locked_elapsed_ms=90_000,
+        bounty=False,
+        freeze=False,
+    )
+
+    view = tq_player_view(
+        row,
+        None,
+        live_started_at=start,
+        now=start + timedelta(seconds=120),
+        include_hint=False,
+    )
+
+    assert view["locked_elapsed_ms"] == 90_000
+    assert view["potential_points"] == 1400
 
 
 def test_question_type_restricts_to_mcq():
@@ -253,7 +278,8 @@ async def test_restart_round_resets_state_and_scores(ctx):
     await lock_answer(session, t1.id, {"option_id": "b"}, "alpha", clock)
     await close_question(session, "admin", clock)
 
-    await restart_round(session, "admin", clock)
+    rnd = await get_round(session)
+    await restart_round(session, "admin", rnd.version, clock)
 
     rnd = await get_round(session)
     await session.refresh(t1)

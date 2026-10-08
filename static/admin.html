@@ -1,877 +1,145 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
-  <title>Admin Dashboard — Live Game Control</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <style>
-    body {
-      background-color: #0f172a;
-      color: #f8fafc;
-      font-family: sans-serif;
-    }
-
-    .card {
-      background-color: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 0.5rem;
-      padding: 1.5rem;
-    }
-
-    input {
-      background-color: #0f172a;
-      border: 1px solid #334155;
-      color: white;
-      padding: 0.5rem;
-      border-radius: 0.375rem;
-      width: 100%;
-      margin-top: 0.25rem;
-    }
-
-    input:focus {
-      outline: none;
-      border-color: #38bdf8;
-    }
-
-    label {
-      font-size: 0.875rem;
-      font-weight: 600;
-      color: #94a3b8;
-      display: block;
-      margin-top: 0.75rem;
-    }
-
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: #0f172a;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #334155;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #475569;
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#030604" />
+  <title>Level Up // Control Console</title>
+  <link rel="stylesheet" href="/static/admin.css" />
 </head>
-
-<body class="p-6 selection:bg-cyan-300 selection:text-black">
-  <div class="max-w-7xl mx-auto">
-    <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
-      <div>
-        <h1 class="text-3xl font-black tracking-tight text-white">Live <span class="text-cyan-400">Dashboard</span></h1>
-        <p class="text-sm text-gray-400 mt-1">Event control and phase synchronization.</p>
+<body>
+  <div class="admin-shell">
+    <header class="console-topbar">
+      <div class="console-brand">
+        <span class="prompt">root@delta-x:</span><strong>LEVELUP_CONTROL</strong>
       </div>
-      <div class="flex items-center gap-4">
-        <div class="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-right">
-          <div class="text-[10px] uppercase tracking-[0.25em] text-cyan-300">Server time</div>
-          <div id="server-time" class="font-mono text-sm font-bold text-white">--:--:--</div>
-        </div>
-        <a href="/add_question.html" target="_blank"
-          class="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold py-2 px-4 rounded-lg transition">
-          <i data-lucide="layout-grid" class="size-4"></i> Question Builder
-        </a>
-        <button onclick="logout()"
-          class="flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition">
-          <i data-lucide="log-out" class="size-4"></i> Log Out
-        </button>
+      <div class="console-statusline">
+        <span>PHASE <b id="header-phase">IDLE</b></span>
+        <span>QUESTION <b id="header-question">—</b></span>
+        <span>T− <b id="header-countdown">—</b></span>
+        <span>SERVER <b id="header-clock">—</b></span>
+        <span id="ready-status" class="status-token" data-state="checking">CHECKING</span>
       </div>
-    </div>
+      <div class="console-actions">
+        <a href="/add_question.html" class="console-button">QUESTION BUILDER</a>
+        <button id="create-team-open" class="console-button" type="button">NEW TEAM</button>
+        <button id="admin-logout" class="console-button danger-text" type="button">LOGOUT</button>
+      </div>
+    </header>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="flex flex-col gap-6 lg:col-span-1">
-        <div class="card shadow-xl shadow-black/40">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-xl font-bold text-white">Phase Control</h2>
-            <span id="current-phase"
-              class="font-mono text-xs uppercase tracking-widest text-cyan-400 font-bold bg-cyan-400/10 px-3 py-1 rounded-full border border-cyan-400/20">LOADING...</span>
+    <main class="console-grid">
+      <section class="console-panel area-control">
+        <div class="window-title"><span>ROUND_CONTROL</span><small id="round-version">v—</small></div>
+        <div class="window-body control-body">
+          <div class="phase-strip" id="phase-strip">
+            <span data-phase="idle">IDLE</span><span data-phase="topic">TOPIC</span><span data-phase="live">LIVE</span><span data-phase="closed">CLOSED</span>
           </div>
-
-          <div class="grid grid-cols-2 gap-3 mb-6">
-            <button id="btn-idle" onclick="setPhase('idle')"
-              class="phase-btn bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Restart</button>
-            <button id="btn-topic" onclick="setPhase('topic')"
-              class="phase-btn bg-purple-900 hover:bg-purple-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Topic</button>
-            <button id="btn-live" onclick="setPhase('live')"
-              class="phase-btn bg-lime-900 hover:bg-lime-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Live</button>
-            <button id="btn-closed" onclick="setPhase('closed')"
-              class="phase-btn bg-red-900 hover:bg-red-700 text-white py-2 rounded-lg font-bold uppercase tracking-wider text-sm transition border-2 border-transparent">Closed</button>
+          <div class="control-buttons">
+            <button id="start-button" class="cmd positive" type="button">START QUESTION</button>
+            <button id="close-button" class="cmd negative" type="button">CLOSE QUESTION</button>
+            <button id="publish-button" class="cmd" type="button">PUBLISH LEADERBOARD</button>
+            <button id="cards-button" class="cmd" type="button">REVEAL POWER-UPS</button>
           </div>
+          <div class="control-meta">
+            <span>SELECTED <b id="selected-question-label">NONE</b></span>
+            <span>CURRENT <b id="current-question-label">NONE</b></span>
+          </div>
+          <button id="restart-open" class="danger-zone-button" type="button">RESTART / RESET ROUND</button>
+        </div>
+      </section>
 
-          <div class="border-t border-white/10 pt-4">
-            <button onclick="advanceSequence()"
-              class="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-widest py-3 rounded-xl transition shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-              Advance Sequence <i data-lucide="arrow-right-circle" class="size-5"></i>
-            </button>
-            <p id="active-question-id" class="text-center text-xs text-gray-500 mt-2 font-mono">Active Q: None</p>
+      <section class="console-panel area-queue">
+        <div class="window-title"><span>QUESTION_QUEUE</span><small id="question-count">0 loaded</small></div>
+        <div id="question-queue" class="window-body scroll-pane queue-list"></div>
+      </section>
+
+      <section class="console-panel area-matrix">
+        <div class="window-title matrix-title">
+          <span>TEAM_MATRIX</span>
+          <div class="matrix-context"><b id="matrix-topic">NO ACTIVE QUESTION</b><span id="matrix-answer">answer: —</span></div>
+        </div>
+        <div class="window-body matrix-body">
+          <div class="matrix-head">
+            <span>RK</span><span>TEAM</span><span>SCORE</span><span>DEV</span><span>CTRL</span><span>LOCK</span><span>CARDS</span><span>RESULT</span>
+          </div>
+          <div id="team-matrix" class="matrix-rows scroll-pane"></div>
+        </div>
+      </section>
+
+      <section class="console-panel area-health">
+        <div class="window-title"><span>OPS_MONITOR</span><small>live</small></div>
+        <div class="window-body health-body">
+          <div class="health-grid">
+            <div><span>API</span><b id="health-api">—</b></div>
+            <div><span>DB + REDIS</span><b id="health-ready">—</b></div>
+            <div><span>PLAYERS</span><b id="health-sessions">—</b></div>
+            <div><span>CONTROLLERS</span><b id="health-controllers">—</b></div>
+          </div>
+          <div class="activity-title">RECENT SIGNALS</div>
+          <div id="activity-feed" class="activity-feed scroll-pane"></div>
+        </div>
+      </section>
+
+      <section class="console-panel area-team">
+        <div class="window-title"><span>TEAM_INSPECTOR</span><small id="selected-team-name">select a team</small></div>
+        <div id="team-inspector" class="window-body inspector-body"></div>
+      </section>
+
+      <section class="console-panel area-audit">
+        <div class="window-title"><span>AUDIT_STREAM</span><button id="audit-refresh" class="title-button" type="button">REFRESH</button></div>
+        <div id="audit-log" class="window-body scroll-pane audit-list"></div>
+      </section>
+
+      <section class="console-panel area-sessions">
+        <div class="window-title"><span>SESSION_MONITOR</span><small id="session-count-label">0 / 4 active</small></div>
+        <div class="window-body session-body">
+          <div id="session-team-copy" class="session-team-copy">Select a team from the matrix.</div>
+          <div id="session-list" class="session-list scroll-pane"></div>
+          <div class="session-actions">
+            <button id="release-controller-button" class="cmd" type="button" disabled>RELEASE CONTROLLER</button>
+            <button id="revoke-all-button" class="cmd negative" type="button" disabled>REVOKE ALL SESSIONS</button>
           </div>
         </div>
-
-        <div class="card shadow-xl shadow-black/40">
-          <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2"><i data-lucide="users"
-              class="size-4 text-fuchsia-400"></i> Register Team</h2>
-          <form id="team-form" onsubmit="createTeam(event)">
-            <div class="grid grid-cols-2 gap-2">
-              <div><label class="text-xs">Display Name</label><input name="name" required class="text-sm" /></div>
-              <div><label class="text-xs">Username</label><input name="username" required class="text-sm" /></div>
-              <div><label class="text-xs">Password</label><input name="password" type="password" required
-                  class="text-sm" /></div>
-              <div><label class="text-xs">Score</label><input name="score" type="number" value="0" class="text-sm" />
-              </div>
-            </div>
-            <button type="submit"
-              class="mt-4 w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-lg transition text-sm">Create
-              Team</button>
-          </form>
-          <p id="team-status" class="mt-2 text-center text-xs font-mono"></p>
-        </div>
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-1 flex flex-col h-[80vh]">
-        <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-4">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="database" class="size-5 text-cyan-400"></i> Database Queue
-          </h2>
-          <button onclick="fetchQuestions()"
-            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
-        </div>
-
-        <div id="questions-container" class="flex-1 overflow-y-auto space-y-4 pr-2"></div>
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-1 flex flex-col h-[80vh]">
-        <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-4">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="trophy" class="size-5 text-lime-400"></i> Live Standings
-          </h2>
-          <button onclick="fetchLeaderboard()"
-            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto pr-2">
-          <table class="w-full text-left text-sm">
-            <thead class="text-xs uppercase text-gray-500 sticky top-0 bg-[#1e293b] pb-2">
-              <tr>
-                <th class="py-2">Rank</th>
-                <th class="py-2">Team</th>
-                <th class="py-2 text-right">Timer</th>
-                <th class="py-2 text-right">Score</th>
-              </tr>
-            </thead>
-            <tbody id="leaderboard-container" class="divide-y divide-white/5"></tbody>
-          </table>
-        </div>
-        
-        <!-- NEW PUBLISH SECTION -->
-        <div class="mt-4 pt-4 border-t border-white/10">
-          <button onclick="publishLeaderboard()" class="w-full bg-lime-500/10 text-lime-400 border border-lime-500/30 hover:bg-lime-500/20 py-3 rounded-lg font-bold tracking-widest uppercase text-[11px] transition shadow-[0_0_10px_rgba(132,204,22,0.1)]">
-            Push Live Scores to Players
-          </button>
-        </div>
-        <!-- END NEW PUBLISH SECTION -->
-
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
-        <div class="flex items-center justify-between mb-4 border-b border-white/10 pb-3">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="display" class="size-5 text-violet-400"></i> Player Preview
-          </h2>
-          <span id="live-countdown" class="font-mono text-sm font-bold text-lime-300">--</span>
-        </div>
-        <div id="player-preview" class="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]"></div>
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
-        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="bell" class="size-5 text-amber-400"></i> Live Activity
-          </h2>
-          <button onclick="clearActivityFeed()"
-            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Clear</button>
-        </div>
-        <div id="activity-feed" class="space-y-2"></div>
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
-        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="users" class="size-5 text-cyan-400"></i> Team Detail Inspector
-          </h2>
-        </div>
-        <div id="team-detail" class="space-y-3"></div>
-      </div>
-
-      <div class="card shadow-xl shadow-black/40 lg:col-span-3">
-        <div class="flex items-center justify-between mb-3 border-b border-white/10 pb-3">
-          <h2 class="text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="shield-alert" class="size-5 text-amber-400"></i> Audit / Dispute Log
-          </h2>
-          <button onclick="fetchAuditLog()"
-            class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition">Refresh</button>
-        </div>
-        <div id="audit-container" class="flex-1 overflow-y-auto space-y-2 pr-2"></div>
-      </div>
-    </div>
+      </section>
+    </main>
   </div>
 
+  <div id="restart-modal" class="modal" aria-hidden="true">
+    <button class="modal-shade" data-close-modal="restart-modal" aria-label="Close"></button>
+    <section class="modal-window danger-modal">
+      <div class="window-title"><span>DANGER // ROUND RESTART</span></div>
+      <div class="modal-content">
+        <p>This clears live round state, scores and per-question gameplay data. Live restart is blocked by the backend.</p>
+        <label>Type exactly <code>RESTART ROUND</code></label>
+        <input id="restart-confirmation" autocomplete="off" />
+        <div class="modal-actions">
+          <button class="cmd" data-close-modal="restart-modal" type="button">CANCEL</button>
+          <button id="restart-confirm" class="cmd negative" type="button">EXECUTE RESTART</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="create-team-modal" class="modal" aria-hidden="true">
+    <button class="modal-shade" data-close-modal="create-team-modal" aria-label="Close"></button>
+    <section class="modal-window">
+      <div class="window-title"><span>CREATE_TEAM</span></div>
+      <form id="create-team-form" class="modal-content form-grid">
+        <label>Team name<input name="name" required maxlength="80" /></label>
+        <label>Username<input name="username" required maxlength="64" /></label>
+        <label>Password<input name="password" type="password" required minlength="3" /></label>
+        <label>Initial score<input name="score" type="number" value="0" /></label>
+        <div class="modal-actions full-span">
+          <button class="cmd" data-close-modal="create-team-modal" type="button">CANCEL</button>
+          <button class="cmd positive" type="submit">CREATE TEAM</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="admin-toast" class="admin-toast" aria-live="polite"></div>
+
   <script src="/static/common.js"></script>
-  <script>
-    lucide.createIcons();
-
-    const authState = auth();
-    if (!authState || authState.role !== "admin") {
-      window.location.href = "/";
-    }
-
-    let questions = [];
-    let roundState = null;
-    let selectedQuestionId = null;
-    let activityFeed = [];
-    let selectedTeamId = null;
-    let serverClockAnchor = null;
-    let adminTimerFrame = null;
-
-    document.addEventListener("DOMContentLoaded", async () => {
-      connectWs((message) => {
-        const allowed = ["state", "admin_state", "leaderboard", "matrix", "controller", "controller_released", "locked", "swap_queued", "swap_applied", "card", "admin_notice"];
-        if (message && allowed.includes(message.type)) {
-          if (message.type === "admin_notice") {
-            pushActivity(message);
-            showToast(message.message || `${message.kind} activity`);
-          }
-          refreshAll();
-        }
-      });
-
-      const tickAdminClock = () => {
-        if (roundState?.server_now) {
-          updateServerClock(roundState.server_now);
-          renderPlayerPreview();
-          refreshLeaderboardTimers();
-        }
-        adminTimerFrame = requestAnimationFrame(tickAdminClock);
-      };
-      adminTimerFrame = requestAnimationFrame(tickAdminClock);
-
-      await refreshAll();
-      await fetchAuditLog();
-    });
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
-    function answerSummary(answerKey) {
-      if (!answerKey) return "—";
-      if (answerKey.option_id) return `Option ${answerKey.option_id.toUpperCase()}`;
-      if (answerKey.option_ids) return `Options ${answerKey.option_ids.join(", ").toUpperCase()}`;
-      if (answerKey.value !== undefined) {
-        return answerKey.tolerance !== undefined ? `${answerKey.value} ± ${answerKey.tolerance}` : String(answerKey.value);
-      }
-      return JSON.stringify(answerKey);
-    }
-
-    async function refreshAll() {
-      await Promise.all([loadRound(), fetchQuestions(), fetchLeaderboard()]);
-      renderPlayerPreview();
-      renderActivityFeed();
-      renderTeamDetail();
-    }
-
-    async function loadRound() {
-      roundState = await api("/api/v1/admin/round");
-      updatePhaseUI(roundState.phase || "idle");
-      updateServerClock(roundState.server_now);
-
-      const activeId = roundState.current_question_id || null;
-      document.getElementById("active-question-id").textContent = activeId
-        ? `Active Q: ${activeId.slice(0, 8)}...`
-        : "Active Q: None";
-
-      if (activeId) selectedQuestionId = activeId;
-    }
-
-    function updateServerClock(value) {
-      const el = document.getElementById("server-time");
-      if (!el) return;
-      if (!value) {
-        el.textContent = "--:--:--";
-        return;
-      }
-      const baseMs = new Date(value).getTime();
-      if (!Number.isNaN(baseMs)) {
-        if (!serverClockAnchor || serverClockAnchor.base !== value) {
-          serverClockAnchor = { base: value, clientNow: Date.now() };
-        }
-        const displayTime = new Date(baseMs + (Date.now() - serverClockAnchor.clientNow));
-        el.textContent = displayTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      }
-    }
-
-    function computeCurrentCountdown() {
-      if (!roundState || !roundState.global_deadline_ms) return "--";
-
-      const nowBase = roundState.server_now ? new Date(roundState.server_now).getTime() : Date.now();
-      const now = nowBase + (serverClockAnchor && serverClockAnchor.base === roundState.server_now ? Date.now() - serverClockAnchor.clientNow : 0);
-
-      return `${Math.max(0, Math.ceil((roundState.global_deadline_ms - now) / 1000))}s`;
-    }
-
-    function formatDeadlineCountdown(deadlineAt) {
-      if (!deadlineAt) return "—";
-      const deadlineMs = new Date(deadlineAt).getTime();
-      if (Number.isNaN(deadlineMs)) return "—";
-
-      const serverValue = roundState?.server_now || new Date().toISOString();
-      const serverBaseMs = new Date(serverValue).getTime();
-      if (!serverClockAnchor || serverClockAnchor.base !== serverValue) {
-        serverClockAnchor = { base: serverValue, clientNow: Date.now() };
-      }
-      const nowMs = serverBaseMs + (Date.now() - serverClockAnchor.clientNow);
-      const remaining = Math.max(0, Math.ceil((deadlineMs - nowMs) / 1000));
-      return `${remaining}s`;
-    }
-
-    function refreshLeaderboardTimers() {
-      const container = document.getElementById("leaderboard-container");
-      if (!container || !roundState?.matrix?.teams) return;
-
-      const liveTeams = new Map((roundState.matrix.teams || []).map((team) => [team.team_id, team]));
-      container.querySelectorAll("tr[data-team-id]").forEach((row) => {
-        const teamId = row.dataset.teamId;
-        const liveTeam = liveTeams.get(teamId);
-        const timerCell = row.querySelector("[data-role='timer']");
-        if (!timerCell) return;
-
-        const timer = formatDeadlineCountdown(liveTeam?.deadline_at);
-        timerCell.textContent = timer;
-        timerCell.classList.toggle("text-gray-500", timer === "—");
-        timerCell.classList.toggle("text-cyan-300", timer !== "—");
-      });
-    }
-
-    function renderPlayerPreview() {
-      const panel = document.getElementById("player-preview");
-      const countdownLabel = document.getElementById("live-countdown");
-      if (!panel) return;
-      countdownLabel.textContent = computeCurrentCountdown();
-
-      const q = roundState?.question || null;
-      if (!q) {
-        panel.innerHTML = '<div class="rounded-xl border border-white/10 bg-black/20 p-5 text-gray-400">No active player view yet.</div>';
-        return;
-      }
-
-      // 1. Generate main question image HTML if available
-      const qMediaHtml = q.media_url 
-        ? `<img src="${escapeHtml(q.media_url)}" class="mt-4 max-h-40 w-auto rounded-xl object-contain border border-white/10 shadow-lg" alt="Question media" />` 
-        : "";
-
-      const opts = q.options && Array.isArray(q.options) ? q.options : [];
-      
-      panel.innerHTML = `
-        <div class="rounded-xl border border-white/10 bg-black/20 p-5">
-          <div class="mb-3 flex items-center justify-between">
-            <span class="font-mono text-[10px] uppercase tracking-[0.25em] text-cyan-300">${escapeHtml(roundState.phase || "idle")}</span>
-            <span class="font-mono text-xs text-white/50">Q${q.index || 0}</span>
-          </div>
-          <h3 class="text-2xl font-black text-white">${escapeHtml(q.topic || "Current topic")}</h3>
-          <p class="mt-3 text-sm text-gray-300">${escapeHtml(q.prompt || "Prompt not visible yet.")}</p>
-          
-          <!-- Inject the main question image here -->
-          ${qMediaHtml}
-          
-          ${opts.length ? `<div class="mt-4 space-y-2">${opts.map((opt, idx) => {
-            
-            // 2. Generate option image HTML if available
-            const optMediaHtml = opt.media_url 
-              ? `<img src="${escapeHtml(opt.media_url)}" class="mt-2 max-h-20 rounded-md border border-white/10 object-contain shadow-sm" alt="Option Image" />` 
-              : "";
-              
-            return `<div class="flex flex-col justify-center rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-200">
-                      <div>${String.fromCharCode(65 + idx)}. ${escapeHtml(opt.text || opt.option || opt)}</div>
-                      ${optMediaHtml}
-                    </div>`;
-          }).join("")}</div>` : ""}
-        </div>
-        <div class="rounded-xl border border-white/10 bg-black/20 p-5">
-          <div class="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">Player state</div>
-          <div class="mt-4 space-y-3 text-sm text-gray-200">
-            <div class="flex justify-between"><span>Phase</span><strong class="text-white">${escapeHtml(roundState.phase || "idle")}</strong></div>
-            <div class="flex justify-between"><span>Server time</span><strong class="font-mono text-cyan-300">${roundState.server_now ? new Date(roundState.server_now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "--:--:--"}</strong></div>
-            <div class="flex justify-between"><span>Countdown</span><strong class="font-mono text-lime-300">${computeCurrentCountdown()}</strong></div>
-            <div class="flex justify-between"><span>Question type</span><strong class="text-white">${escapeHtml(q.type || "—")}</strong></div>
-          </div>
-        </div>
-      `;
-    }
-
-    function renderTeamDetail() {
-      const teamDetail = document.getElementById("team-detail");
-      if (!teamDetail) return;
-      const matrix = roundState?.matrix;
-      if (!matrix || !matrix.teams || !matrix.teams.length) {
-        teamDetail.innerHTML = '<div class="text-sm text-gray-400">No live team detail available.</div>';
-        return;
-      }
-      const targetId = selectedTeamId || matrix.teams[0].team_id;
-      const team = matrix.teams.find((item) => item.team_id === targetId) || matrix.teams[0];
-      selectedTeamId = team.team_id;
-      const answerText = team.answer ? JSON.stringify(team.answer, null, 2) : "No answer locked";
-      teamDetail.innerHTML = `
-        <div class="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-[10px] uppercase tracking-[0.25em] text-cyan-300">Selected team</div>
-              <h3 class="mt-2 text-2xl font-black text-white">${escapeHtml(team.team_name || "Team")}</h3>
-            </div>
-            <div class="font-mono text-sm text-lime-300">${Number(team.score || 0).toLocaleString()} pts</div>
-          </div>
-          <div class="mt-4 grid gap-3 text-sm md:grid-cols-2">
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Locked</div><div class="mt-1 font-semibold text-white">${team.locked ? "Yes" : "No"}</div></div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Graded</div><div class="mt-1 font-semibold text-white">${team.graded ? "Yes" : "No"}</div></div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Bounty</div><div class="mt-1 font-semibold text-white">${team.bounty ? "Used" : "Ready"}</div></div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Freeze</div><div class="mt-1 font-semibold text-white">${team.freeze ? "Used" : "Ready"}</div></div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Peek</div><div class="mt-1 font-semibold text-white">${team.peek ? "Used" : "Ready"}</div></div>
-            <div class="rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-gray-400">Swap</div><div class="mt-1 font-semibold text-white">${team.swap_used ? "Used" : "Ready"}</div></div>
-          </div>
-          <div class="mt-4 rounded-lg border border-white/10 bg-black/20 p-3">
-            <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400">Answer payload</div>
-            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-amber-200">${escapeHtml(answerText)}</pre>
-          </div>
-        </div>
-
-        <!-- ADMIN CONTROLS SECTION -->
-          <div class="mt-4 pt-4 border-t border-white/10 grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            <!-- 1. Question Grade Override -->
-            <div>
-              <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400 mb-2">Grade Override (Auto-Calculates Time)</div>
-              ${team.graded ? `
-                <div class="flex gap-2">
-                  <button onclick="overrideGrade('${team.team_id}', true)" class="flex-1 bg-lime-500/10 hover:bg-lime-500/20 text-lime-400 border border-lime-500/30 font-bold py-1.5 rounded-lg transition text-xs">Mark Correct</button>
-                  <button onclick="overrideGrade('${team.team_id}', false)" class="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 font-bold py-1.5 rounded-lg transition text-xs">Mark Incorrect</button>
-                </div>
-              ` : `
-                <div class="text-xs text-gray-500 italic mt-2">Wait until the question is closed to override.</div>
-              `}
-            </div>
-
-            <!-- 2. Manual Total Score Adjustment -->
-            <div>
-              <div class="text-[10px] uppercase tracking-[0.25em] text-gray-400 mb-2">Hard-Set Total Score</div>
-              <div class="flex gap-2 items-center">
-                <input type="number" id="manual-score-${team.team_id}" value="${team.score || 0}" class="flex-1 text-sm bg-black/50 border border-white/20 rounded px-2 py-1.5 text-white" />
-                <button onclick="setManualScore('${team.team_id}')" class="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold px-4 py-1.5 rounded-lg transition text-xs">Save</button>
-              </div>
-            </div>
-
-          </div>
-      `;
-    }
-
-    function pushActivity(item) {
-      activityFeed.unshift({
-        kind: item.kind || "activity",
-        message: item.message || "System event",
-        team_name: item.team_name || "System",
-        at: item.at || new Date().toISOString(),
-      });
-      activityFeed = activityFeed.slice(0, 10);
-      renderActivityFeed();
-    }
-
-    function renderActivityFeed() {
-      const feed = document.getElementById("activity-feed");
-      if (!feed) return;
-      if (!activityFeed.length) {
-        feed.innerHTML = '<div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-gray-400">No activity yet. Power-card and lock events will appear here in real time.</div>';
-        return;
-      }
-      feed.innerHTML = activityFeed.map((event) => `
-        <div class="rounded-lg border border-white/10 bg-black/20 p-3">
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-mono text-[10px] uppercase tracking-[0.25em] text-cyan-300">${escapeHtml(event.kind)}</span>
-            <span class="text-[10px] text-gray-500">${new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-          </div>
-          <div class="mt-2 text-sm text-white">${escapeHtml(event.message)}</div>
-          <div class="mt-1 text-xs text-gray-400">${escapeHtml(event.team_name)}</div>
-        </div>
-      `).join("");
-    }
-
-    function clearActivityFeed() {
-      activityFeed = [];
-      renderActivityFeed();
-    }
-
-    function showToast(message) {
-      if (!message) return;
-      const container = document.getElementById("toast-container") || (() => {
-        const node = document.createElement("div");
-        node.id = "toast-container";
-        node.className = "fixed right-5 top-5 z-50 space-y-2";
-        document.body.appendChild(node);
-        return node;
-      })();
-
-      const toast = document.createElement("div");
-      toast.className = "rounded-lg border border-cyan-400/30 bg-slate-900/95 px-4 py-3 text-sm text-white shadow-2xl shadow-cyan-950/40";
-      toast.textContent = message;
-      container.appendChild(toast);
-      setTimeout(() => toast.remove(), 3200);
-    }
-
-    function updatePhaseUI(phase) {
-      const p = phase || "idle";
-      document.getElementById("current-phase").textContent = "STATUS: " + p.toUpperCase();
-
-      document.querySelectorAll(".phase-btn").forEach((btn) => {
-        btn.classList.remove("border-white", "opacity-100");
-        btn.classList.add("opacity-50", "border-transparent");
-      });
-
-      const active = document.getElementById(`btn-${p}`);
-      if (active) {
-        active.classList.remove("opacity-50", "border-transparent");
-        active.classList.add("border-white", "opacity-100");
-      }
-    }
-
-    async function setPhase(nextPhase) {
-      if (nextPhase === "idle") {
-        const ok = confirm("Restart the whole quiz? This clears the active question, resets team answers, and restores start-of-game scores.");
-        if (!ok) return;
-
-        try {
-          await api("/api/v1/admin/round/restart", { method: "POST" });
-          await refreshAll();
-        } catch (err) {
-          alert("Error: " + err.message);
-        }
-        return;
-      }
-
-      const qid = selectedQuestionId || roundState?.current_question_id || (questions[0] && questions[0].id);
-      if (!qid) {
-        alert("Create a question before starting the round.");
-        return;
-      }
-
-      try {
-        if (nextPhase === "topic") {
-          await api(`/api/v1/admin/round/show-topic/${qid}`, { method: "POST" });
-        } else if (nextPhase === "live") {
-          await api("/api/v1/admin/round/start", { method: "POST" });
-        } else if (nextPhase === "closed") {
-          await api("/api/v1/admin/round/close", { method: "POST" });
-        }
-        await refreshAll();
-      } catch (err) {
-        alert("Error: " + err.message);
-      }
-    }
-
-    async function advanceSequence() {
-      if (!questions.length) {
-        alert("Create a question before advancing.");
-        return;
-      }
-
-      const sorted = [...questions].sort((a, b) => a.index - b.index);
-      const nextId = roundState?.current_question_id
-        ? sorted.find((q) => q.id === roundState.current_question_id)
-          ? roundState.phase === "topic"
-            ? roundState.current_question_id
-            : roundState.phase === "live"
-              ? roundState.current_question_id
-              : sorted[sorted.findIndex((q) => q.id === roundState.current_question_id) + 1]?.id || sorted[0].id
-          : sorted[0].id
-        : sorted[0].id;
-
-      if (!nextId) {
-        alert("No question available.");
-        return;
-      }
-
-      try {
-        if (!roundState || roundState.phase === "idle" || roundState.phase === "closed") {
-          await api(`/api/v1/admin/round/show-topic/${nextId}`, { method: "POST" });
-        } else if (roundState.phase === "topic") {
-          await api("/api/v1/admin/round/start", { method: "POST" });
-        } else if (roundState.phase === "live") {
-          await api("/api/v1/admin/round/close", { method: "POST" });
-        }
-        await refreshAll();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function fetchQuestions() {
-      const container = document.getElementById("questions-container");
-      try {
-        questions = await api("/api/v1/admin/questions");
-        if (!questions.length) {
-          container.innerHTML = '<p class="text-gray-500 text-sm text-center">No questions found. Use the Question Builder.</p>';
-          return;
-        }
-
-        const sorted = [...questions].sort((a, b) => a.index - b.index);
-        container.innerHTML = sorted.map((q) => {
-          const active = roundState?.current_question_id === q.id;
-          return `
-            <div class="rounded-xl border ${active ? "border-cyan-400/60 bg-cyan-500/10" : "border-white/5 bg-black/20"} p-4">
-              <div class="flex justify-between items-start mb-2 gap-2">
-                <span class="font-mono text-xs font-bold ${active ? "text-cyan-300 bg-cyan-400/10" : "text-cyan-400 bg-cyan-400/10"} px-2 py-1 rounded">Q${q.index} | ${escapeHtml(q.topic)}</span>
-                <span class="text-[10px] text-gray-500 uppercase tracking-wider">${escapeHtml(q.type)}</span>
-              </div>
-              <p class="text-sm text-white font-medium mb-3">${escapeHtml(q.prompt)}</p>
-              <div class="space-y-1 text-xs">
-                <p><span class="text-gray-500">Answer:</span> <span class="text-lime-400 font-mono">${escapeHtml(answerSummary(q.answer_key))}</span></p>
-                ${q.hint ? `<p><span class="text-gray-500">Hint:</span> <span class="text-fuchsia-300 italic">${escapeHtml(q.hint)}</span></p>` : ""}
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button type="button" onclick="selectQuestion('${q.id}')" class="px-2 py-1 text-[11px] bg-white/10 hover:bg-white/20 rounded transition">Select</button>
-                <button type="button" onclick="showTopicFor('${q.id}')" class="px-2 py-1 text-[11px] bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-200 rounded transition">Show Topic</button>
-                <button type="button" onclick="startRoundNow()" class="px-2 py-1 text-[11px] bg-lime-500/20 hover:bg-lime-500/30 text-lime-200 rounded transition">Start</button>
-                <button type="button" onclick="closeRoundNow()" class="px-2 py-1 text-[11px] bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded transition">Close</button>
-                <button type="button" onclick="moveQuestion('${q.id}', -1)" class="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded transition">↑</button>
-                <button type="button" onclick="moveQuestion('${q.id}', 1)" class="px-2 py-1 text-[11px] bg-slate-700 hover:bg-slate-600 rounded transition">↓</button>
-              </div>
-            </div>
-          `;
-        }).join("");
-      } catch (err) {
-        container.innerHTML = `<p class="text-red-400 text-xs p-4">Error loading questions. (${escapeHtml(err.message)})</p>`;
-      }
-    }
-
-    function selectQuestion(id) {
-      selectedQuestionId = id;
-      const active = document.getElementById("active-question-id");
-      active.textContent = `Active Q: ${id.slice(0, 8)}...`;
-    }
-
-    async function showTopicFor(questionId) {
-      selectedQuestionId = questionId;
-      try {
-        await api(`/api/v1/admin/round/show-topic/${questionId}`, { method: "POST" });
-        await refreshAll();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function startRoundNow() {
-      try {
-        await api("/api/v1/admin/round/start", { method: "POST" });
-        await refreshAll();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function closeRoundNow() {
-      try {
-        await api("/api/v1/admin/round/close", { method: "POST" });
-        await refreshAll();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function fetchLeaderboard() {
-      const container = document.getElementById("leaderboard-container");
-      try {
-        const teams = await api("/api/v1/admin/teams");
-        const matrixTeams = new Map((roundState?.matrix?.teams || []).map((team) => [team.team_id, team]));
-        container.innerHTML = [...teams]
-          .sort((a, b) => b.score - a.score)
-          .map((team, index) => {
-            const liveTeam = matrixTeams.get(team.id);
-            const timer = formatDeadlineCountdown(liveTeam?.deadline_at);
-            return `
-              <tr class="hover:bg-white/5 transition cursor-pointer" data-team-id="${team.id}" onclick="selectTeam('${team.id}')">
-                <td class="py-3 font-mono text-xs text-gray-400">#${index + 1}</td>
-                <td class="py-3 font-bold text-white">${escapeHtml(team.name)}</td>
-                <td data-role="timer" class="py-3 text-right font-mono ${timer === "—" ? "text-gray-500" : "text-cyan-300"}">${timer}</td>
-                <td class="py-3 text-right font-mono text-lime-400">${Number(team.score || 0).toLocaleString()}</td>
-              </tr>
-            `;
-          }).join("");
-        refreshLeaderboardTimers();
-        if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
-      } catch (err) {
-        container.innerHTML = `<tr><td colspan="4" class="text-red-400 text-xs py-4">Error loading teams.</td></tr>`;
-      }
-    }
-
-    function selectTeam(teamId) {
-      selectedTeamId = teamId;
-      renderTeamDetail();
-    }
-
-    async function moveQuestion(questionId, direction) {
-      const sorted = [...questions].sort((a, b) => a.index - b.index);
-      const idx = sorted.findIndex((q) => q.id === questionId);
-      if (idx < 0) return;
-      const nextIndex = idx + direction;
-      if (nextIndex < 0 || nextIndex >= sorted.length) return;
-
-      const reordered = [...sorted];
-      const [moved] = reordered.splice(idx, 1);
-      reordered.splice(nextIndex, 0, moved);
-
-      try {
-        await api("/api/v1/admin/questions/reorder", {
-          method: "POST",
-          body: JSON.stringify({
-            question_ids: reordered.map((q) => q.id),
-          }),
-        });
-        await refreshAll();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    async function fetchAuditLog() {
-      const container = document.getElementById("audit-container");
-      try {
-        const rows = await api("/api/v1/admin/audit");
-        if (!rows || !rows.length) {
-          container.innerHTML = '<div class="text-sm text-gray-400">No audit events yet.</div>';
-          return;
-        }
-
-        container.innerHTML = rows.slice(0, 12).map((row) => `
-          <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
-            <div class="flex items-center justify-between gap-2">
-              <span class="font-mono text-cyan-300">${escapeHtml(row.kind || "event")}</span>
-              <span class="text-gray-400">${escapeHtml(row.at ? new Date(row.at).toLocaleString() : "—")}</span>
-            </div>
-            <div class="mt-2 text-gray-300">
-              <span class="text-gray-500">Actor:</span> ${escapeHtml(row.actor || "system")}
-              ${row.team_id ? ` | <span class="text-gray-500">Team:</span> ${escapeHtml(row.team_id.slice(0, 8))}` : ""}
-            </div>
-            <pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] text-amber-200">${escapeHtml(JSON.stringify(row.payload || {}, null, 2))}</pre>
-          </div>
-        `).join("");
-      } catch (err) {
-        container.innerHTML = `<div class="text-red-400 text-xs">Audit log unavailable: ${escapeHtml(err.message)}</div>`;
-      }
-    }
-
-    async function createTeam(event) {
-      event.preventDefault();
-      const status = document.getElementById("team-status");
-      const fd = new FormData(event.target);
-
-      try {
-        await api("/api/v1/admin/teams", {
-          method: "POST",
-          body: JSON.stringify({
-            name: String(fd.get("name") || "").trim(),
-            username: String(fd.get("username") || "").trim(),
-            password: String(fd.get("password") || "").trim(),
-            score: Number(fd.get("score") || 0),
-          }),
-        });
-
-        status.textContent = "Team added!";
-        status.className = "mt-2 text-center text-xs font-mono text-green-400";
-        event.target.reset();
-        await fetchLeaderboard();
-      } catch (err) {
-        status.textContent = err.message;
-        status.className = "mt-2 text-center text-xs font-mono text-red-400";
-      }
-    }
-
-    function logout() {
-      clearAuth();
-      window.location.href = "/";
-    }
-
-
-    async function overrideGrade(teamId, isCorrect) {
-      const qid = roundState?.current_question_id || selectedQuestionId;
-      if (!qid) {
-        alert("No active question to override.");
-        return;
-      }
-
-      const confirmMsg = `Recalculate this team's answer as ${isCorrect ? 'CORRECT' : 'INCORRECT'}? The engine will auto-calculate time decay based on when they locked in.`;
-      if (!confirm(confirmMsg)) return;
-
-      try {
-        await api("/api/v1/admin/grade/override", {
-          method: "POST",
-          body: JSON.stringify({
-            team_id: teamId,
-            question_id: qid,
-            correct: isCorrect
-          }),
-        });
-        
-        showToast(`Grade successfully recalculated as ${isCorrect ? 'Correct' : 'Incorrect'}`);
-        await refreshAll();
-      } catch (err) {
-        alert("Failed to override grade: " + err.message);
-      }
-    }
-
-    async function setManualScore(teamId) {
-      const input = document.getElementById(`manual-score-${teamId}`);
-      const newScore = parseInt(input.value, 10);
-      
-      if (isNaN(newScore)) {
-        alert("Please enter a valid number.");
-        return;
-      }
-
-      if (!confirm(`Are you sure you want to forcibly set this team's total score to ${newScore} pts?`)) return;
-
-      try {
-        await api(`/api/v1/admin/teams/${teamId}/score`, {
-          method: "PATCH",
-          body: JSON.stringify({ score: newScore })
-        });
-        
-        showToast(`Total score manually updated to ${newScore}`);
-        await refreshAll();
-      } catch (err) {
-        alert("Failed to update score: " + err.message);
-      }
-    }
-
-    async function publishLeaderboard() {
-      if (!confirm("Push the current live scores to all player screens right now?")) return;
-
-      try {
-        await api("/api/v1/admin/round/publish-leaderboard", { method: "POST" });
-        showToast("Leaderboard successfully published to all players!");
-        await fetchLeaderboard();
-      } catch (err) {
-        alert("Failed to publish leaderboard: " + err.message);
-      }
-    }
-
-  </script>
+  <script src="/static/admin.js"></script>
 </body>
-
 </html>

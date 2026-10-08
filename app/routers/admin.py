@@ -65,11 +65,20 @@ class OverrideIn(BaseModel):
     correct: bool
 
 
+class RestartIn(BaseModel):
+    confirmation: str
+    expected_round_version: int = Field(ge=0)
+
+
 def _err(e: EngineError) -> HTTPException:
     return HTTPException(e.status, {"code": e.code, "message": e.message})
 
 
-async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> None:
+async def _fanout(
+    session: AsyncSession,
+    extra_admin: dict | None = None,
+    public_leaderboard: list[dict[str, Any]] | None = None,
+) -> None:
     from app.engine import get_round as gr
     from app.models import Question as Q
     from app.redisutil import get_frozen_leaderboard
@@ -78,11 +87,13 @@ async def _fanout(session: AsyncSession, extra_admin: dict | None = None) -> Non
     live_board = await leaderboard(session)
     
     # Try to get the frozen board, fallback to live if it's the very first run
-    frozen_board = await notify_after_commit(
-        get_frozen_leaderboard(),
-        operation="admin.fanout.read_frozen_leaderboard",
-        context={"phase": rnd.phase},
-    )
+    frozen_board = public_leaderboard
+    if frozen_board is None and rnd.phase != "idle":
+        frozen_board = await notify_after_commit(
+            get_frozen_leaderboard(),
+            operation="admin.fanout.read_frozen_leaderboard",
+            context={"phase": rnd.phase},
+        )
     if frozen_board is None:
         frozen_board = live_board
 
@@ -443,16 +454,46 @@ async def api_close(
 
 @router.post("/round/restart")
 async def api_restart(
+    body: RestartIn,
     session: AsyncSession = Depends(get_session),
     admin: Principal = Depends(require_admin),
 ):
+    if body.confirmation != "RESTART ROUND":
+        raise HTTPException(
+            400,
+            {"code": "invalid_confirmation", "message": "Confirmation phrase does not match"},
+        )
     try:
-        await restart_round(session, actor=admin.username)
+        await restart_round(
+            session,
+            actor=admin.username,
+            expected_round_version=body.expected_round_version,
+        )
         await session.commit()
     except EngineError as e:
         await session.rollback()
         raise _err(e) from None
-    await _fanout(session)
+
+    from app.redisutil import clear_frozen_leaderboard, set_frozen_leaderboard
+
+    reset_board = await leaderboard(session)
+    await notify_after_commit(
+        clear_frozen_leaderboard(),
+        operation="admin.restart.clear_frozen_leaderboard",
+        context={"round_version": body.expected_round_version},
+    )
+    await notify_after_commit(
+        set_frozen_leaderboard(reset_board),
+        operation="admin.restart.reset_frozen_leaderboard",
+        context={"round_version": body.expected_round_version + 1},
+    )
+    for team in reset_board:
+        await notify_after_commit(
+            release_controller(team["id"], force=True),
+            operation="admin.restart.release_controller",
+            context={"team_id": team["id"]},
+        )
+    await _fanout(session, public_leaderboard=reset_board)
     return {"ok": True}
 
 
@@ -482,6 +523,7 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
 
     return {
         "phase": rnd.phase,
+        "version": rnd.version,
         "server_now": datetime.now(timezone.utc).isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,

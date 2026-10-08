@@ -1,0 +1,564 @@
+(() => {
+  const authState = auth();
+  if (!authState || authState.role !== "admin" || !authState.access_token) {
+    window.location.href = "/";
+    return;
+  }
+
+  let roundState = null;
+  let questions = [];
+  let teams = [];
+  let auditRows = [];
+  let selectedQuestionId = null;
+  let selectedTeamId = null;
+  let selectedSessions = null;
+  let sessionCache = new Map();
+  let serverClockAnchor = null;
+  let activityFeed = [];
+  let refreshTimer = null;
+  let toastTimer = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  document.addEventListener("DOMContentLoaded", init);
+  window.addEventListener("levelup:session-invalid", () => logout(true));
+
+  async function init() {
+    bindControls();
+    connectWs(onWsMessage);
+    await refreshCore();
+    await Promise.all([refreshAudit(), refreshHealth(), refreshSessionSummaries()]);
+    requestAnimationFrame(tickClock);
+    setInterval(refreshHealth, 10_000);
+    setInterval(refreshSessionSummaries, 15_000);
+  }
+
+  function bindControls() {
+    $("start-button").addEventListener("click", startQuestion);
+    $("close-button").addEventListener("click", closeQuestion);
+    $("publish-button").addEventListener("click", publishLeaderboard);
+    $("cards-button").addEventListener("click", toggleCards);
+    $("restart-open").addEventListener("click", () => openModal("restart-modal"));
+    $("restart-confirm").addEventListener("click", restartRound);
+    $("create-team-open").addEventListener("click", () => openModal("create-team-modal"));
+    $("create-team-form").addEventListener("submit", createTeam);
+    $("audit-refresh").addEventListener("click", refreshAudit);
+    $("release-controller-button").addEventListener("click", releaseController);
+    $("revoke-all-button").addEventListener("click", revokeAllSessions);
+    $("admin-logout").addEventListener("click", () => logout(false));
+    document.querySelectorAll("[data-close-modal]").forEach((el) => {
+      el.addEventListener("click", () => closeModal(el.dataset.closeModal));
+    });
+  }
+
+  function onWsMessage(message) {
+    if (!message) return;
+    if (message.type === "admin_notice") {
+      addActivity(message.message || message.kind || "admin notice");
+    } else if (message.type) {
+      addActivity(message.type.replaceAll("_", " "));
+    }
+    scheduleRefresh();
+  }
+
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => refreshCore({ quiet: true }), 120);
+  }
+
+  async function refreshCore({ quiet = false } = {}) {
+    try {
+      const [round, qList, teamList] = await Promise.all([
+        api("/api/v1/admin/round"),
+        api("/api/v1/admin/questions"),
+        api("/api/v1/admin/teams"),
+      ]);
+      roundState = round;
+      questions = qList || [];
+      teams = teamList || [];
+      syncServerClock(round.server_now);
+      if (round.current_question_id) selectedQuestionId = round.current_question_id;
+      if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
+      renderAll();
+      if (selectedTeamId) await refreshSelectedSessions({ quiet: true });
+    } catch (err) {
+      if (err.status === 401) return logout(true);
+      if (!quiet) showToast(err.message || "Refresh failed", true);
+    }
+  }
+
+  function renderAll() {
+    renderHeader();
+    renderRoundControl();
+    renderQuestionQueue();
+    renderMatrix();
+    renderInspector();
+    renderSessions();
+    renderHealthSummary();
+    renderActivity();
+  }
+
+  function renderHeader() {
+    const phase = roundState?.phase || "idle";
+    $("header-phase").textContent = phase.toUpperCase();
+    $("header-question").textContent = roundState?.question?.index ? `Q${roundState.question.index}` : "—";
+    $("round-version").textContent = `v${roundState?.version ?? "—"}`;
+    $("current-question-label").textContent = roundState?.question?.index ? `Q${roundState.question.index}` : "NONE";
+
+    document.querySelectorAll("#phase-strip [data-phase]").forEach((el) => {
+      el.classList.toggle("active", el.dataset.phase === phase);
+    });
+  }
+
+  function renderRoundControl() {
+    const phase = roundState?.phase || "idle";
+    const selected = questions.find((q) => q.id === selectedQuestionId);
+    $("selected-question-label").textContent = selected ? `Q${selected.index}` : "NONE";
+    $("start-button").disabled = phase !== "topic";
+    $("close-button").disabled = phase !== "live";
+    $("restart-open").disabled = phase === "live";
+    $("cards-button").textContent = roundState?.reveal_cards ? "HIDE POWER-UPS" : "REVEAL POWER-UPS";
+  }
+
+  function renderQuestionQueue() {
+    $("question-count").textContent = `${questions.length} loaded`;
+    const target = $("question-queue");
+    if (!questions.length) {
+      target.innerHTML = `<div class="inspector-empty">No questions in database.</div>`;
+      return;
+    }
+    target.innerHTML = [...questions].sort((a, b) => a.index - b.index).map((q) => `
+      <div class="queue-item ${q.id === selectedQuestionId ? "selected" : ""}" data-question-id="${q.id}">
+        <div class="queue-index">Q${q.index}</div>
+        <div class="queue-copy">
+          <div class="queue-topic">${escapeHtml(q.topic)}</div>
+          <div class="queue-prompt">${escapeHtml(q.prompt)}</div>
+        </div>
+        <div class="queue-actions">
+          <button class="mini" data-action="topic" title="Show topic">TOPIC</button>
+          <button class="mini" data-action="up" title="Move up">↑</button>
+          <button class="mini" data-action="down" title="Move down">↓</button>
+        </div>
+      </div>`).join("");
+
+    target.querySelectorAll(".queue-item").forEach((row) => {
+      row.addEventListener("click", (ev) => {
+        const id = row.dataset.questionId;
+        if (ev.target.dataset.action === "topic") return showTopic(id);
+        if (ev.target.dataset.action === "up") return moveQuestion(id, -1);
+        if (ev.target.dataset.action === "down") return moveQuestion(id, 1);
+        selectedQuestionId = id;
+        renderQuestionQueue();
+        renderRoundControl();
+      });
+    });
+  }
+
+  function renderMatrix() {
+    const matrix = roundState?.matrix || null;
+    const matrixByTeam = new Map((matrix?.teams || []).map((row) => [row.team_id, row]));
+    const sortedTeams = [...teams].sort((a, b) => Number(b.score || 0) - Number(a.score || 0) || String(a.name).localeCompare(String(b.name)));
+    const ranks = new Map(sortedTeams.map((team, i) => [team.id, i + 1]));
+
+    $("matrix-topic").textContent = matrix?.question ? `Q${matrix.question.index} // ${matrix.question.topic}` : "NO ACTIVE QUESTION";
+    $("matrix-answer").textContent = matrix?.question ? `answer: ${answerSummary(matrix.question.answer_key)}` : "answer: —";
+
+    const target = $("team-matrix");
+    if (!sortedTeams.length) {
+      target.innerHTML = `<div class="inspector-empty">No teams created.</div>`;
+      return;
+    }
+
+    target.innerHTML = sortedTeams.map((team) => {
+      const row = matrixByTeam.get(team.id) || {};
+      const sessions = sessionCache.get(team.id);
+      const activeCount = sessions?.active_count ?? "—";
+      const ctrl = sessions?.controller_session_id ? true : false;
+      const cards = [row.bounty ? "B" : "-", row.freeze ? "F" : "-", row.peek ? "P" : "-", row.swap_used ? "S" : "-"].join(" ");
+      let result = "PENDING";
+      let resultClass = "result-pending";
+      if (row.graded) {
+        if (row.is_correct === true) { result = `+${row.points_delta ?? 0}`; resultClass = "result-ok"; }
+        else if (row.is_correct === false) { result = `${row.points_delta ?? 0}`; resultClass = "result-bad"; }
+        else { result = `${row.points_delta ?? 0}`; }
+      }
+      return `
+        <div class="matrix-row ${team.id === selectedTeamId ? "selected" : ""}" data-team-id="${team.id}">
+          <span class="rank">#${ranks.get(team.id)}</span>
+          <span class="team-name">${escapeHtml(team.name)}</span>
+          <span class="score">${formatNumber(team.score)}</span>
+          <span class="cell-center">${activeCount}/4</span>
+          <span class="cell-center"><i class="flag ${ctrl ? "on ctrl" : ""}">${ctrl ? "●" : "○"}</i></span>
+          <span class="cell-center"><i class="flag ${row.locked ? "on" : ""}">${row.locked ? "YES" : "NO"}</i></span>
+          <span>${escapeHtml(cards)}</span>
+          <span class="${resultClass}">${escapeHtml(result)}</span>
+        </div>`;
+    }).join("");
+
+    target.querySelectorAll(".matrix-row").forEach((row) => row.addEventListener("click", () => selectTeam(row.dataset.teamId)));
+  }
+
+  function renderInspector() {
+    const target = $("team-inspector");
+    const team = teams.find((t) => t.id === selectedTeamId);
+    const row = roundState?.matrix?.teams?.find((t) => t.team_id === selectedTeamId);
+    if (!team) {
+      $("selected-team-name").textContent = "select a team";
+      target.innerHTML = `<div class="inspector-empty">Select a team from TEAM_MATRIX.</div>`;
+      return;
+    }
+
+    $("selected-team-name").textContent = team.name;
+    const answer = row?.answer ? JSON.stringify(row.answer) : "—";
+    const state = row?.graded ? (row.is_correct === true ? "CORRECT" : row.is_correct === false ? "WRONG" : "UNANSWERED") : (row?.locked ? "LOCKED" : "OPEN");
+    target.innerHTML = `
+      <div class="inspector-stats">
+        <div><span>SCORE</span><b>${formatNumber(team.score)}</b></div>
+        <div><span>ANSWER</span><b title="${escapeHtml(answer)}">${escapeHtml(shorten(answer, 17))}</b></div>
+        <div><span>STATE</span><b>${escapeHtml(state)}</b></div>
+      </div>
+      <div class="inspector-actions">
+        <input id="manual-score-input" type="number" value="${Number(team.score || 0)}" aria-label="Manual score" />
+        <button id="manual-score-set" class="cmd" type="button">SET SCORE</button>
+        <button id="team-refresh-sessions" class="cmd" type="button">SESSIONS</button>
+      </div>
+      <div class="inspector-actions">
+        <span></span>
+        <button id="grade-correct" class="cmd positive" type="button" ${roundState?.current_question_id ? "" : "disabled"}>MARK CORRECT</button>
+        <button id="grade-wrong" class="cmd negative" type="button" ${roundState?.current_question_id ? "" : "disabled"}>MARK WRONG</button>
+      </div>`;
+
+    $("manual-score-set").addEventListener("click", setManualScore);
+    $("team-refresh-sessions").addEventListener("click", () => refreshSelectedSessions());
+    $("grade-correct").addEventListener("click", () => overrideGrade(true));
+    $("grade-wrong").addEventListener("click", () => overrideGrade(false));
+  }
+
+  function renderSessions() {
+    const team = teams.find((t) => t.id === selectedTeamId);
+    const data = selectedSessions || (selectedTeamId ? sessionCache.get(selectedTeamId) : null);
+    $("session-team-copy").textContent = team ? `${team.name} // authenticated device registry` : "Select a team from the matrix.";
+    $("session-count-label").textContent = `${data?.active_count ?? 0} / 4 active`;
+    $("release-controller-button").disabled = !team || !data?.controller_session_id;
+    $("revoke-all-button").disabled = !team || !data?.active_count;
+
+    const target = $("session-list");
+    if (!data?.sessions?.length) {
+      target.innerHTML = `<div class="inspector-empty">No session history for this team.</div>`;
+      return;
+    }
+
+    target.innerHTML = data.sessions.map((s, i) => `
+      <div class="session-card ${s.active ? "active" : ""} ${s.is_controller ? "controller" : ""}">
+        <div class="session-head">
+          <b>${escapeHtml(s.device_label || `DEVICE ${i + 1}`)}</b>
+          <span>${s.is_controller ? "CONTROLLER" : s.active ? "ACTIVE" : "INACTIVE"}</span>
+        </div>
+        <div class="session-meta">
+          <span>SID ${escapeHtml(shorten(s.session_id, 18))}</span>
+          <span>LOGIN ${formatDateTime(s.login_time)}</span>
+          <span>LAST ${formatDateTime(s.last_seen)}</span>
+          ${s.user_agent ? `<span title="${escapeHtml(s.user_agent)}">UA ${escapeHtml(shorten(s.user_agent, 45))}</span>` : ""}
+        </div>
+        ${s.active ? `<div class="session-controls"><button class="mini" data-revoke-session="${s.session_id}">REVOKE</button></div>` : ""}
+      </div>`).join("");
+
+    target.querySelectorAll("[data-revoke-session]").forEach((btn) => btn.addEventListener("click", () => revokeSession(btn.dataset.revokeSession)));
+  }
+
+  function renderHealthSummary() {
+    const values = [...sessionCache.values()];
+    const active = values.reduce((sum, item) => sum + Number(item.active_count || 0), 0);
+    const controllers = values.reduce((sum, item) => sum + (item.controller_session_id ? 1 : 0), 0);
+    $("health-sessions").textContent = String(active);
+    $("health-controllers").textContent = String(controllers);
+  }
+
+  function renderActivity() {
+    const target = $("activity-feed");
+    if (!activityFeed.length) {
+      target.innerHTML = `<div class="activity-row">No live signals yet.</div>`;
+      return;
+    }
+    target.innerHTML = activityFeed.slice(0, 12).map((item) => `<div class="activity-row"><time>${item.time}</time>${escapeHtml(item.text)}</div>`).join("");
+  }
+
+  function addActivity(text) {
+    activityFeed.unshift({ time: new Date().toLocaleTimeString([], { hour12: false }), text });
+    activityFeed = activityFeed.slice(0, 40);
+    renderActivity();
+  }
+
+  async function refreshAudit() {
+    try {
+      auditRows = await api("/api/v1/admin/audit");
+      const target = $("audit-log");
+      target.innerHTML = (auditRows || []).slice(0, 40).map((row) => `
+        <div class="audit-row">
+          <time>${formatTime(row.at)}</time>
+          <span class="audit-kind">${escapeHtml(row.kind || "event")}</span>
+          <span class="audit-copy" title="${escapeHtml(JSON.stringify(row.payload || {}))}">${escapeHtml(row.actor || "system")} ${row.team_id ? `// ${shorten(row.team_id, 8)}` : ""} ${escapeHtml(JSON.stringify(row.payload || {}))}</span>
+        </div>`).join("") || `<div class="inspector-empty">No audit entries.</div>`;
+    } catch (err) {
+      showToast(`Audit unavailable: ${err.message}`, true);
+    }
+  }
+
+  async function refreshHealth() {
+    let apiOk = false;
+    let readyOk = false;
+    try { apiOk = !!(await api("/api/health")).ok; } catch (_) { apiOk = false; }
+    try { readyOk = !!(await api("/api/ready")).ok; } catch (_) { readyOk = false; }
+    $("health-api").textContent = apiOk ? "ONLINE" : "DOWN";
+    $("health-api").style.color = apiOk ? "var(--green)" : "var(--red)";
+    $("health-ready").textContent = readyOk ? "READY" : "DEGRADED";
+    $("health-ready").style.color = readyOk ? "var(--green)" : "var(--red)";
+    $("ready-status").dataset.state = readyOk ? "ready" : "bad";
+    $("ready-status").textContent = readyOk ? "STACK READY" : "STACK DEGRADED";
+  }
+
+  async function refreshSessionSummaries() {
+    if (!teams.length) return;
+    const results = await Promise.all(teams.map(async (team) => {
+      try { return [team.id, await api(`/api/v1/admin/teams/${team.id}/sessions`)]; }
+      catch { return [team.id, null]; }
+    }));
+    results.forEach(([id, data]) => { if (data) sessionCache.set(id, data); });
+    if (selectedTeamId && sessionCache.has(selectedTeamId)) selectedSessions = sessionCache.get(selectedTeamId);
+    renderMatrix();
+    renderSessions();
+    renderHealthSummary();
+  }
+
+  async function refreshSelectedSessions({ quiet = false } = {}) {
+    if (!selectedTeamId) return;
+    try {
+      selectedSessions = await api(`/api/v1/admin/teams/${selectedTeamId}/sessions`);
+      sessionCache.set(selectedTeamId, selectedSessions);
+      renderSessions();
+      renderMatrix();
+      renderHealthSummary();
+    } catch (err) {
+      if (!quiet) showToast(err.message, true);
+    }
+  }
+
+  function selectTeam(id) {
+    selectedTeamId = id;
+    selectedSessions = sessionCache.get(id) || null;
+    renderMatrix();
+    renderInspector();
+    renderSessions();
+    refreshSelectedSessions({ quiet: true });
+  }
+
+  async function showTopic(questionId) {
+    await action(async () => {
+      await api(`/api/v1/admin/round/show-topic/${questionId}`, { method: "POST" });
+      selectedQuestionId = questionId;
+      addActivity(`topic shown for ${questionId.slice(0, 8)}`);
+      await refreshCore({ quiet: true });
+    }, "Topic shown");
+  }
+
+  async function startQuestion() {
+    await action(async () => {
+      await api("/api/v1/admin/round/start", { method: "POST" });
+      await refreshCore({ quiet: true });
+    }, "Question started");
+  }
+
+  async function closeQuestion() {
+    if (!confirm("Close and grade the live question now?")) return;
+    await action(async () => {
+      await api("/api/v1/admin/round/close", { method: "POST" });
+      await refreshCore({ quiet: true });
+    }, "Question closed and graded");
+  }
+
+  async function publishLeaderboard() {
+    await action(async () => {
+      await api("/api/v1/admin/round/publish-leaderboard", { method: "POST" });
+    }, "Published leaderboard pushed to players");
+  }
+
+  async function toggleCards() {
+    const on = roundState?.reveal_cards ? 0 : 1;
+    await action(async () => {
+      await api(`/api/v1/admin/round/reveal-cards/${on}`, { method: "POST" });
+      await refreshCore({ quiet: true });
+    }, on ? "Power-ups revealed" : "Power-ups hidden");
+  }
+
+  async function moveQuestion(questionId, direction) {
+    const ordered = [...questions].sort((a, b) => a.index - b.index);
+    const index = ordered.findIndex((q) => q.id === questionId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    const [item] = ordered.splice(index, 1);
+    ordered.splice(target, 0, item);
+    await action(async () => {
+      await api("/api/v1/admin/questions/reorder", { method: "POST", body: JSON.stringify({ question_ids: ordered.map((q) => q.id) }) });
+      await refreshCore({ quiet: true });
+    }, "Question order updated");
+  }
+
+  async function setManualScore() {
+    const input = $("manual-score-input");
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || !selectedTeamId) return;
+    if (!confirm(`Set this team's total score to ${value}?`)) return;
+    await action(async () => {
+      await api(`/api/v1/admin/teams/${selectedTeamId}/score`, { method: "PATCH", body: JSON.stringify({ score: Math.trunc(value) }) });
+      await refreshCore({ quiet: true });
+    }, "Manual score updated");
+  }
+
+  async function overrideGrade(correct) {
+    if (!selectedTeamId || !roundState?.current_question_id) return;
+    if (!confirm(`Re-grade selected team as ${correct ? "CORRECT" : "WRONG"}?`)) return;
+    await action(async () => {
+      await api("/api/v1/admin/grade/override", {
+        method: "POST",
+        body: JSON.stringify({ team_id: selectedTeamId, question_id: roundState.current_question_id, correct }),
+      });
+      await refreshCore({ quiet: true });
+    }, `Grade overridden: ${correct ? "correct" : "wrong"}`);
+  }
+
+  async function revokeSession(sessionId) {
+    if (!selectedTeamId || !confirm("Revoke this device session immediately?")) return;
+    await action(async () => {
+      await api(`/api/v1/admin/teams/${selectedTeamId}/sessions/${sessionId}/revoke`, { method: "POST" });
+      await refreshSelectedSessions({ quiet: true });
+    }, "Session revoked");
+  }
+
+  async function revokeAllSessions() {
+    if (!selectedTeamId || !confirm("Revoke ALL active sessions for this team?")) return;
+    await action(async () => {
+      await api(`/api/v1/admin/teams/${selectedTeamId}/sessions/revoke-all`, { method: "POST" });
+      await refreshSelectedSessions({ quiet: true });
+    }, "All team sessions revoked");
+  }
+
+  async function releaseController() {
+    if (!selectedTeamId) return;
+    await action(async () => {
+      await api(`/api/v1/admin/teams/${selectedTeamId}/release-controller`, { method: "POST" });
+      await refreshSelectedSessions({ quiet: true });
+    }, "Controller released");
+  }
+
+  async function restartRound() {
+    const confirmation = $("restart-confirmation").value;
+    if (!roundState) return;
+    await action(async () => {
+      await api("/api/v1/admin/round/restart", {
+        method: "POST",
+        body: JSON.stringify({ confirmation, expected_round_version: roundState.version }),
+      });
+      $("restart-confirmation").value = "";
+      closeModal("restart-modal");
+      sessionCache.clear();
+      await refreshCore({ quiet: true });
+      await refreshSessionSummaries();
+    }, "Round restarted");
+  }
+
+  async function createTeam(event) {
+    event.preventDefault();
+    const fd = new FormData(event.currentTarget);
+    await action(async () => {
+      await api("/api/v1/admin/teams", {
+        method: "POST",
+        body: JSON.stringify({
+          name: String(fd.get("name") || "").trim(),
+          username: String(fd.get("username") || "").trim(),
+          password: String(fd.get("password") || ""),
+          score: Number(fd.get("score") || 0),
+        }),
+      });
+      event.currentTarget.reset();
+      closeModal("create-team-modal");
+      await refreshCore({ quiet: true });
+      await refreshSessionSummaries();
+    }, "Team created");
+  }
+
+  async function action(fn, success) {
+    try {
+      await fn();
+      if (success) showToast(success);
+    } catch (err) {
+      if (err.status === 401) return logout(true);
+      showToast(err.message || "Operation failed", true);
+    }
+  }
+
+  function tickClock() {
+    if (roundState?.server_now) {
+      const now = serverNowMs(roundState.server_now);
+      $("header-clock").textContent = new Date(now).toLocaleTimeString([], { hour12: false });
+      $("header-countdown").textContent = computeCountdown(now);
+    }
+    requestAnimationFrame(tickClock);
+  }
+
+  function computeCountdown(now) {
+    if (!roundState?.global_deadline_ms) return "—";
+    const ms = Math.max(0, Number(roundState.global_deadline_ms) - now);
+    const sec = Math.ceil(ms / 1000);
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  }
+
+  function syncServerClock(serverNow) {
+    const baseMs = new Date(serverNow || Date.now()).getTime();
+    serverClockAnchor = { value: serverNow, baseMs, clientMs: Date.now() };
+  }
+
+  function serverNowMs(serverNow) {
+    if (!serverClockAnchor || serverClockAnchor.value !== serverNow) syncServerClock(serverNow);
+    return serverClockAnchor.baseMs + (Date.now() - serverClockAnchor.clientMs);
+  }
+
+  function openModal(id) { $(id).classList.add("open"); $(id).setAttribute("aria-hidden", "false"); }
+  function closeModal(id) { $(id).classList.remove("open"); $(id).setAttribute("aria-hidden", "true"); }
+
+  async function logout(forced) {
+    if (!forced) {
+      try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) { /* continue */ }
+    }
+    clearAuth();
+    window.location.href = "/";
+  }
+
+  function showToast(message, error = false) {
+    const el = $("admin-toast");
+    el.textContent = message;
+    el.classList.toggle("error", error);
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+  }
+
+  function answerSummary(answerKey) {
+    if (!answerKey) return "—";
+    if (answerKey.option_id) return String(answerKey.option_id).toUpperCase();
+    if (Array.isArray(answerKey.option_ids)) return answerKey.option_ids.join(", ").toUpperCase();
+    return shorten(JSON.stringify(answerKey), 40);
+  }
+
+  function formatNumber(value) { return Number(value || 0).toLocaleString(); }
+  function formatTime(value) { return value ? new Date(value).toLocaleTimeString([], { hour12: false }) : "—"; }
+  function formatDateTime(value) { return value ? new Date(value).toLocaleString([], { hour12: false }) : "—"; }
+  function shorten(value, n) { const s = String(value ?? ""); return s.length > n ? `${s.slice(0, n)}…` : s; }
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+})();

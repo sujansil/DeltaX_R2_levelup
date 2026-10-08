@@ -17,7 +17,7 @@ from app.engine import (
 from app.models import AuditEvent, Base, Question, SwapEvent, Team, TeamQuestion
 from app.routers import admin as admin_routes
 from app.routers import play as play_routes
-from app.routers.admin import OverrideIn, ScoreIn
+from app.routers.admin import OverrideIn, RestartIn, ScoreIn
 from app.routers.play import AnswerIn, SwapIn
 
 
@@ -337,23 +337,32 @@ async def test_admin_score_retry_repeats_version_but_not_score_after_fanout_fail
     assert persisted_team.version == first_version + 1
 
 
-async def test_admin_restart_retry_repeats_audit_and_versions_after_fanout_failure(
+async def test_admin_restart_retry_with_stale_version_is_rejected_after_postcommit_failure(
     route_ctx, monkeypatch
 ):
     session, team, target, question = route_ctx
     team_id = team.id
     await show_topic(session, question.id, "admin")
-    await start_question(session, "admin")
     await session.commit()
+    rnd = await get_round(session)
+    body = RestartIn(
+        confirmation="RESTART ROUND",
+        expected_round_version=rnd.version,
+    )
 
     async def release_controller(team_id, session_id=None, *, force=False):
         return True
 
-    monkeypatch.setattr("app.engine.release_controller", release_controller)
+    async def reset_frozen_leaderboard(payload):
+        return None
+
+    monkeypatch.setattr(admin_routes, "release_controller", release_controller)
+    monkeypatch.setattr("app.redisutil.clear_frozen_leaderboard", no_frozen_leaderboard)
+    monkeypatch.setattr("app.redisutil.set_frozen_leaderboard", reset_frozen_leaderboard)
     await configure_failing_admin_fanout(monkeypatch)
 
     assert await admin_routes.api_restart(
-        session=session, admin=admin_principal()
+        body=body, session=session, admin=admin_principal()
     ) == {"ok": True}
 
     rnd = await get_round(session)
@@ -368,17 +377,20 @@ async def test_admin_restart_retry_repeats_audit_and_versions_after_fanout_failu
         )
     ) == 1
 
-    assert await admin_routes.api_restart(
-        session=session, admin=admin_principal()
-    ) == {"ok": True}
+    with pytest.raises(HTTPException) as stale:
+        await admin_routes.api_restart(
+            body=body, session=session, admin=admin_principal()
+        )
+    assert stale.value.status_code == 409
+    assert stale.value.detail["code"] == "stale_round_version"
     await session.refresh(persisted_team)
     assert persisted_team.score == 0
-    assert persisted_team.version == first_version + 1
+    assert persisted_team.version == first_version
     assert await session.scalar(
         select(func.count()).select_from(AuditEvent).where(
             AuditEvent.kind == "restart_round"
         )
-    ) == 2
+    ) == 1
 
 
 async def test_admin_override_retry_repeats_audit_but_not_score_after_fanout_failure(
