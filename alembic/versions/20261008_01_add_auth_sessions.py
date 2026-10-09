@@ -4,8 +4,7 @@ Revision ID: 20261008_01
 Revises: None
 Create Date: 2026-10-08
 
-This first revision is an incremental migration for the existing Level Up schema.
-The referenced users and teams tables must already exist before it is applied.
+The referenced users and teams tables are created by the foundation revision.
 """
 
 from alembic import op
@@ -13,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "20261008_01"
-down_revision = None
+down_revision = "20261007_01"
 branch_labels = None
 depends_on = None
 

@@ -93,6 +93,16 @@ async def export_ctx(tmp_path, monkeypatch):
                             "rank": 1,
                         }
                     ],
+                    card_usage_rows=[
+                        {
+                            "team_id": str(team.id),
+                            "team_name": "Alpha",
+                            "bounty_used": True,
+                            "freeze_used": True,
+                            "peek_used": True,
+                            "swap_used": True,
+                        }
+                    ],
                 ),
                 TeamQuestion(
                     id=uuid4(),
@@ -269,6 +279,7 @@ async def test_admin_download_contains_complete_safe_snapshot_without_mutation(e
     assert len(postgres["auth_sessions"]) == 2
     assert postgres["published_leaderboard"]["published_by"] == "admin-export"
     assert postgres["published_leaderboard"]["rows"][0]["score"] == 4000
+    assert postgres["published_leaderboard"]["card_usage_rows"][0]["freeze_used"] is True
     assert postgres["auth_sessions"][1]["device_label"] in {
         "admin laptop", "team tablet"
     }

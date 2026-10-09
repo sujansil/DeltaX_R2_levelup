@@ -924,6 +924,7 @@ async def export_event(
                 ),
                 "question_index": durable_published_leaderboard.question_index,
                 "rows": durable_published_leaderboard.rows,
+                "card_usage_rows": durable_published_leaderboard.card_usage_rows,
             }
             if durable_published_leaderboard
             else None
@@ -990,9 +991,30 @@ async def api_publish_leaderboard(
 ):
     from app.redisutil import set_frozen_leaderboard
 
-    live_board = await leaderboard(session)
-    rnd = await get_round(session)
+    rnd = await get_round(session, for_update=True)
     question = await session.get(Question, rnd.current_question_id) if rnd.current_question_id else None
+    live_board = await leaderboard(session)
+    card_usage_rows = []
+    if rnd.current_question_id is not None:
+        question_rows = (
+            await session.execute(
+                select(TeamQuestion).where(
+                    TeamQuestion.question_id == rnd.current_question_id
+                )
+            )
+        ).scalars().all()
+        cards_by_team = {str(row.team_id): row for row in question_rows}
+        card_usage_rows = [
+            {
+                "team_id": team["id"],
+                "team_name": team["name"],
+                "bounty_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].bounty),
+                "freeze_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].freeze),
+                "peek_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].peek),
+                "swap_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].swap_used),
+            }
+            for team in live_board
+        ]
     published_at = datetime.now(timezone.utc)
     snapshot = await session.get(PublishedLeaderboard, 1, with_for_update=True)
     if snapshot is None:
@@ -1005,6 +1027,7 @@ async def api_publish_leaderboard(
     snapshot.question_id = rnd.current_question_id
     snapshot.question_index = question.index if question else None
     snapshot.rows = live_board
+    snapshot.card_usage_rows = card_usage_rows
     await audit(
         session,
         actor=admin.username,
@@ -1017,6 +1040,7 @@ async def api_publish_leaderboard(
             "question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
             "question_index": question.index if question else None,
             "rows": live_board,
+            "card_usage_rows": card_usage_rows,
             "actor": admin.username,
         },
     )

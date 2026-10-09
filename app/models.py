@@ -117,6 +117,9 @@ class PublishedLeaderboard(Base):
     question_id: Mapped[Any | None] = mapped_column(Uuid, ForeignKey("questions.id"), nullable=True)
     question_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rows: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    card_usage_rows: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
 
 
 class TeamQuestion(Base):

@@ -8,44 +8,22 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import SessionLocal, engine
 from app.engine import try_autoclose, try_autostart
-from app.models import Base, RoundState, User
+from app.models import RoundState, User
 from app.redisutil import close_redis
-from app.routers import admin, auth, play, ws
+from app.routers import admin, auth, play, public, ws
 from app.security import hash_password
 from app.ws import redis_subscriber
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
-async def _ensure_round_state_schema() -> None:
-    async with engine.begin() as conn:
-        if get_settings().database_url.startswith("sqlite"):
-            result = await conn.execute(text("PRAGMA table_info(round_state)"))
-            columns = {row[1] for row in result.fetchall()}
-            if "global_deadline_at" not in columns:
-                await conn.execute(text("ALTER TABLE round_state ADD COLUMN global_deadline_at DATETIME"))
-            return
-
-        result = await conn.execute(text("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'round_state'
-        """))
-        columns = {row[0] for row in result.fetchall()}
-        if "global_deadline_at" not in columns:
-            await conn.execute(text("ALTER TABLE round_state ADD COLUMN IF NOT EXISTS global_deadline_at TIMESTAMPTZ"))
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await _ensure_round_state_schema()
     async with SessionLocal() as session:
         settings = get_settings()
         existing = (await session.execute(select(User).where(User.username == settings.admin_username))).scalar_one_or_none()
@@ -122,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(admin.router)
     app.include_router(play.router)
+    app.include_router(public.router)
     app.include_router(ws.router)
 
     @app.get("/api/health")
@@ -153,6 +132,10 @@ def create_app() -> FastAPI:
         @app.get("/admin")
         async def admin_page():
             return FileResponse(STATIC / "admin.html")
+
+        @app.get("/audience")
+        async def audience_page():
+            return FileResponse(STATIC / "audience.html")
 
         @app.get("/add_question.html")
         async def add_question_page():

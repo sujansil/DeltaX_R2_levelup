@@ -41,6 +41,48 @@ def test_admin_frontend_is_local_and_exposes_session_and_restart_controls():
     assert 'confirmation, expected_round_version: roundState.version' in js
 
 
+def test_admin_frontend_integrates_round_publication_and_recovery_controls():
+    html = (ROOT / "static" / "admin.html").read_text()
+    js = (ROOT / "static" / "admin.js").read_text()
+
+    for control_id in (
+        "next-button", "start-button", "pause-button", "resume-button",
+        "close-button", "publish-button", "restart-open",
+    ):
+        assert f'id="{control_id}"' in html
+    assert "PUBLISH STANDINGS + CARDS" in html
+    assert 'id="publication-last"' in html
+    assert 'id="publication-current"' in html
+    assert 'id="recovery-export-button"' in html
+    assert 'href="/audience"' in html
+    assert 'target="_blank"' in html
+    assert 'fetch("/api/v1/admin/export/event"' in js
+    assert 'api("/api/v1/public/audience")' in js
+    assert 'phase !== "live"' in js
+    assert 'phase !== "paused"' in js
+    assert 'classList.toggle("phase-primary", phase === "live")' in js
+    assert 'classList.toggle("phase-primary", phase === "paused")' in js
+
+
+def test_admin_frontend_keeps_pause_timers_and_session_semantics_explicit():
+    html = (ROOT / "static" / "admin.html").read_text()
+    js = (ROOT / "static" / "admin.js").read_text()
+
+    assert js.count('roundState?.phase === "paused" && roundState?.paused_at') >= 3
+    assert "new Date(roundState.paused_at).getTime()" in js
+    assert 'const text = `${sec}s`' in js
+    css = (ROOT / "static" / "admin.css").read_text()
+    assert ".session-card.status-active" in css
+    for status in ("stale", "inactive", "revoked", "expired"):
+        assert f'data-status="{status}"' in css
+    assert "recent_session_count" in js
+    assert "valid_session_count" in js
+    assert "controllerUnknown ? \"UNKNOWN\"" in js
+    assert "CONTROLLER UNKNOWN" in js
+    assert "CONTROLLER LEASE STALE" in js
+    assert 'id="paused-at-label"' in html
+
+
 def test_login_keeps_relative_auth_and_optional_three_background():
     html = (ROOT / "static" / "login.html").read_text()
     background_js = (ROOT / "static" / "login-background.js").read_text()

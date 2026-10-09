@@ -22,14 +22,14 @@ Card costs require enough score. Default starting score is `INITIAL_TEAM_SCORE` 
 
 ```bash
 cp .env.example .env   # set SECRET_KEY and ADMIN_PASSWORD
-docker compose up --build
+docker compose up -d db redis
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api python -m scripts.seed
+docker compose up -d api
 ```
 
-Then seed demo teams/questions:
-
-```bash
-docker compose exec api python -m scripts.seed
-```
+Alembic is the schema authority. The API and seed command intentionally do
+not create or alter tables; run `alembic upgrade head` before either one.
 
 Open http://localhost:8000
 

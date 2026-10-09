@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111319" />
+  <title>Level Up // Audience</title>
+  <link rel="stylesheet" href="/static/audience.css" />
+</head>
+<body data-phase="idle">
+  <canvas id="chaos-canvas" aria-hidden="true"></canvas>
+  <div class="field-grid" aria-hidden="true"></div>
+
+  <div class="broadcast-shell">
+    <header class="broadcast-header">
+      <div class="identity">
+        <span class="identity-mark">Δx</span>
+        <div><span>DELTA X // LEVEL UP</span><strong>ROUND 2 BROADCAST</strong></div>
+      </div>
+      <div class="broadcast-state">
+        <span id="connection-state" data-state="connecting">SYNCING</span>
+        <span id="phase-label">STANDBY</span>
+        <time id="server-clock">--:--:--</time>
+      </div>
+    </header>
+
+    <main class="audience-grid">
+      <section id="question-section" class="question-stage" aria-labelledby="question-heading">
+        <div class="section-rail">
+          <span id="question-context">CURRENT QUESTION</span>
+          <span id="question-type">—</span>
+        </div>
+        <div id="question-content" class="question-content" aria-live="polite">
+          <div class="standby-state">
+            <span class="orbit-mark" aria-hidden="true"></span>
+            <p>ROUND STANDBY</p>
+            <h1 id="question-heading">Awaiting the next signal.</h1>
+          </div>
+        </div>
+        <div id="pause-banner" class="pause-banner" hidden>
+          <span>II</span> QUESTION PAUSED
+        </div>
+      </section>
+
+      <section class="standings-section" aria-labelledby="standings-heading">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">01 / PUBLISHED STATE</span>
+            <h2 id="standings-heading">Standings</h2>
+          </div>
+          <div id="publication-context" class="publication-context">NOT YET PUBLISHED</div>
+        </div>
+        <div id="leaderboard" class="leaderboard" aria-live="polite">
+          <div class="empty-state">STANDINGS NOT YET PUBLISHED</div>
+        </div>
+      </section>
+
+      <section class="cards-section" aria-labelledby="cards-heading">
+        <div class="section-heading compact-heading">
+          <div>
+            <span class="section-index">02 / DISCLOSED USAGE</span>
+            <h2 id="cards-heading">Card ledger</h2>
+          </div>
+          <time id="published-time">—</time>
+        </div>
+        <div class="card-columns" aria-hidden="true">
+          <span>TEAM</span><span>BOUNTY</span><span>FREEZE</span><span>PEEK</span><span>SWAP</span>
+        </div>
+        <div id="card-board" class="card-board" aria-live="polite">
+          <div class="empty-state">CARD USAGE NOT YET PUBLISHED</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="broadcast-footer">
+      <span>PUBLIC VIEW // READ ONLY</span>
+      <span id="last-sync">WAITING FOR INITIAL STATE</span>
+    </footer>
+  </div>
+
+  <script src="/static/audience.js"></script>
+</body>
+</html>

@@ -41,12 +41,13 @@
             <button id="pause-button" class="cmd" type="button">PAUSE</button>
             <button id="resume-button" class="cmd positive" type="button">RESUME</button>
             <button id="close-button" class="cmd negative" type="button">CLOSE QUESTION</button>
-            <button id="publish-button" class="cmd" type="button">PUBLISH LEADERBOARD</button>
             <button id="view-question-button" class="cmd" type="button">VIEW QUESTION</button>
+            <button id="publish-button" class="cmd publish-command" type="button">PUBLISH STANDINGS + CARDS</button>
           </div>
           <div class="control-meta">
             <span>SELECTED <b id="selected-question-label">NONE</b></span>
             <span>CURRENT <b id="current-question-label">NONE</b></span>
+            <span id="paused-at-row" hidden>PAUSED AT <b id="paused-at-label">—</b></span>
           </div>
         </div>
       </section>
@@ -75,8 +76,18 @@
           <div class="health-grid">
             <div><span>API</span><b id="health-api">—</b></div>
             <div><span>DB + REDIS</span><b id="health-ready">—</b></div>
-            <div><span>PLAYERS</span><b id="health-sessions">—</b></div>
+            <div><span>RECENT DEVICES</span><b id="health-recent-sessions">—</b></div>
+            <div><span>VALID SESSIONS</span><b id="health-sessions">—</b></div>
             <div><span>CONTROLLERS</span><b id="health-controllers">—</b></div>
+          </div>
+          <div class="publication-monitor" aria-live="polite">
+            <div><span>LAST PUBLISHED</span><b id="publication-last">CHECKING</b></div>
+            <div><span>CURRENT</span><b id="publication-current">—</b></div>
+            <small id="publication-note">Audience snapshot includes standings + card usage.</small>
+          </div>
+          <div class="ops-tools">
+            <button id="recovery-export-button" class="cmd" type="button">DOWNLOAD RECOVERY SNAPSHOT</button>
+            <a class="cmd audience-link" href="/audience" target="_blank" rel="noopener noreferrer">OPEN AUDIENCE VIEW</a>
           </div>
           <div class="activity-title">RECENT SIGNALS</div>
           <div id="activity-feed" class="activity-feed scroll-pane"></div>
@@ -94,7 +105,7 @@
       </section>
 
       <section class="console-panel area-sessions">
-        <div class="window-title"><span>SESSION_MONITOR</span><small id="session-count-label">0 / 4 active</small></div>
+        <div class="window-title"><span>SESSION_MONITOR</span><small id="session-count-label">0 recent · 0 / 4 valid</small></div>
         <div class="window-body session-body">
           <div id="session-team-copy" class="session-team-copy">Select a team from the matrix.</div>
           <div id="session-list" class="session-list scroll-pane"></div>

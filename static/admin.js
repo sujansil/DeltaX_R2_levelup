@@ -13,7 +13,9 @@
   let selectedQuestionId = null;
   let selectedTeamId = null;
   let selectedSessions = null;
+  let publicationState = null;
   let sessionCache = new Map();
+  let sessionLookupDegraded = false;
   let serverClockAnchor = null;
   let activityFeed = [];
   let refreshTimer = null;
@@ -41,6 +43,7 @@
     $("resume-button").addEventListener("click", resumeQuestion);
     $("close-button").addEventListener("click", closeQuestion);
     $("publish-button").addEventListener("click", publishLeaderboard);
+    $("recovery-export-button").addEventListener("click", downloadRecoverySnapshot);
     $("view-question-button").addEventListener("click", () => openQuestionViewer(selectedQuestionId || roundState?.current_question_id));
     $("restart-open").addEventListener("click", () => openModal("restart-modal"));
     $("restart-confirm").addEventListener("click", restartRound);
@@ -73,14 +76,16 @@
 
   async function refreshCore({ quiet = false } = {}) {
     try {
-      const [round, qList, teamList] = await Promise.all([
+      const [round, qList, teamList, audience] = await Promise.all([
         api("/api/v1/admin/round"),
         api("/api/v1/admin/questions"),
         api("/api/v1/admin/teams"),
+        api("/api/v1/public/audience").catch(() => null),
       ]);
       roundState = round;
       questions = qList || [];
       teams = teamList || [];
+      publicationState = audience?.publication || null;
       syncServerClock(round.server_now);
       if (round.current_question_id) selectedQuestionId = round.current_question_id;
       if (!selectedTeamId && teams.length) selectedTeamId = teams[0].id;
@@ -95,6 +100,7 @@
   function renderAll() {
     renderHeader();
     renderRoundControl();
+    renderPublicationContext();
     renderQuestionQueue();
     renderMatrix();
     renderInspector();
@@ -122,12 +128,34 @@
     $("start-button").disabled = phase !== "topic";
     $("pause-button").disabled = phase !== "live";
     $("resume-button").disabled = phase !== "paused";
+    $("pause-button").classList.toggle("phase-primary", phase === "live");
+    $("resume-button").classList.toggle("phase-primary", phase === "paused");
     $("close-button").disabled = phase !== "live";
     $("restart-open").disabled = phase === "live" || phase === "paused";
     const next = getNextQuestion();
     $("next-button").disabled = phase === "live" || phase === "paused" || phase === "topic" || !next;
     $("next-button").textContent = next ? `NEXT → Q${next.index}` : "NO NEXT QUESTION";
     $("view-question-button").disabled = !(selectedQuestionId || roundState?.current_question_id);
+    $("paused-at-row").hidden = phase !== "paused" || !roundState?.paused_at;
+    $("paused-at-label").textContent = formatTime(roundState?.paused_at);
+  }
+
+  function renderPublicationContext() {
+    const currentQuestion = roundState?.question?.index;
+    const currentPhase = String(roundState?.phase || "idle").toUpperCase();
+    $("publication-current").textContent = `${currentQuestion ? `Q${currentQuestion} · ` : ""}${currentPhase}`;
+    if (!publicationState?.published_at) {
+      $("publication-last").textContent = "NOT YET PUBLISHED";
+      $("publication-note").textContent = "Publish creates the audience standings + card-usage snapshot.";
+      return;
+    }
+    const publishedQuestion = publicationState.question_index == null ? "NO QUESTION" : `Q${publicationState.question_index}`;
+    $("publication-last").textContent = `${publishedQuestion} · ${formatTime(publicationState.published_at)}`;
+    const differentQuestion = currentQuestion != null && publicationState.question_index != null
+      && Number(currentQuestion) !== Number(publicationState.question_index);
+    $("publication-note").textContent = differentQuestion
+      ? "Current question differs; audience remains on the last published snapshot."
+      : "Audience snapshot includes standings + card usage.";
   }
 
   function renderQuestionQueue() {
@@ -273,10 +301,10 @@
       else if (s.is_controller && (s.status === "revoked" || s.status === "expired")) controllerLabel = " · CONTROLLER LEASE STALE";
       else if (s.is_controller) controllerLabel = " · CONTROLLER";
       return `
-      <div class="session-card ${s.status === "active" ? "active" : ""} ${s.is_controller ? "controller" : ""}">
+      <div class="session-card status-${escapeHtml(String(s.status || "inactive").toLowerCase())} ${s.is_controller ? "controller" : ""}">
         <div class="session-head">
           <b>${escapeHtml(s.device_label || `DEVICE ${i + 1}`)}</b>
-          <span>${escapeHtml(status + controllerLabel)}</span>
+          <span data-status="${escapeHtml(String(s.status || "inactive").toLowerCase())}">${escapeHtml(status + controllerLabel)}</span>
         </div>
         <div class="session-meta">
           <span>SID ${escapeHtml(shorten(s.session_id, 18))}</span>
@@ -293,10 +321,14 @@
 
   function renderHealthSummary() {
     const values = [...sessionCache.values()];
-    const active = values.reduce((sum, item) => sum + Number(item.valid_session_count ?? item.active_count ?? 0), 0);
+    const valid = values.reduce((sum, item) => sum + Number(item.valid_session_count ?? item.active_count ?? 0), 0);
+    const recent = values.reduce((sum, item) => sum + Number(item.recent_session_count ?? 0), 0);
     const controllers = values.reduce((sum, item) => sum + (item.controller_session_id ? 1 : 0), 0);
-    $("health-sessions").textContent = String(active);
-    $("health-controllers").textContent = String(controllers);
+    const controllerUnknown = sessionLookupDegraded || values.some((item) => item.controller_available === false);
+    $("health-recent-sessions").textContent = String(recent);
+    $("health-sessions").textContent = String(valid);
+    $("health-controllers").textContent = controllerUnknown ? "UNKNOWN" : String(controllers);
+    $("health-controllers").style.color = controllerUnknown ? "var(--amber)" : "var(--green)";
   }
 
   function renderActivity() {
@@ -363,6 +395,7 @@
       try { return [team.id, await api(`/api/v1/admin/teams/${team.id}/sessions`)]; }
       catch { return [team.id, null]; }
     }));
+    sessionLookupDegraded = results.some(([, data]) => data === null);
     results.forEach(([id, data]) => { if (data) sessionCache.set(id, data); });
     if (selectedTeamId && sessionCache.has(selectedTeamId)) selectedSessions = sessionCache.get(selectedTeamId);
     renderMatrix();
@@ -435,7 +468,47 @@
   async function publishLeaderboard() {
     await action(async () => {
       await api("/api/v1/admin/round/publish-leaderboard", { method: "POST" });
-    }, "Published leaderboard pushed to players");
+      await refreshCore({ quiet: true });
+    }, "Published standings + card usage to the audience");
+  }
+
+  async function downloadRecoverySnapshot() {
+    const button = $("recovery-export-button");
+    button.disabled = true;
+    try {
+      const currentAuth = auth();
+      const response = await fetch("/api/v1/admin/export/event", {
+        headers: { Authorization: `Bearer ${currentAuth.access_token}` },
+      });
+      if (!response.ok) {
+        let message = `Recovery export failed (${response.status})`;
+        try {
+          const body = await response.json();
+          message = body?.message || body?.detail?.message || (typeof body?.detail === "string" ? body.detail : message);
+        } catch (_) { /* keep concise status error */ }
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+      const filename = match ? decodeURIComponent(match[1].trim()) : `levelup-recovery-${new Date().toISOString().replaceAll(":", "-")}.json`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showToast("Recovery snapshot downloaded");
+    } catch (err) {
+      if (err.status === 401) return logout(true);
+      showToast(err.message || "Recovery export failed", true);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   function getNextQuestion() {
@@ -495,7 +568,7 @@
     await action(async () => {
       await api(`/api/v1/admin/teams/${selectedTeamId}/score`, { method: "PATCH", body: JSON.stringify({ score: Math.trunc(value) }) });
       await refreshCore({ quiet: true });
-    }, "Manual score updated");
+    }, "Score updated; audience standings unchanged until Publish");
   }
 
   async function overrideGrade(correct) {

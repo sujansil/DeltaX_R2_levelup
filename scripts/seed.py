@@ -12,8 +12,8 @@ import asyncio
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db import SessionLocal, engine
-from app.models import Base, Question, Team, User
+from app.db import SessionLocal
+from app.models import Question, Team, User
 from app.security import hash_password
 
 # Added an 8th element to each tuple for the main question's media file path.
@@ -87,9 +87,6 @@ QUESTIONS = [
 
 async def main() -> None:
     settings = get_settings()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
     async with SessionLocal() as session:
         # Seed 16 teams
         for i in range(1, 17):
