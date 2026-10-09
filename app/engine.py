@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.clock import Clock, SystemClock
 from app.config import get_settings
-from app.models import AuditEvent, Question, RoundState, SwapEvent, Team, TeamQuestion, User
+from app.models import AuditEvent, PublishedLeaderboard, Question, RoundState, SwapEvent, Team, TeamQuestion, User
 from app.scoring import (
     BOUNTY_COST,
     FREEZE_BONUS_MS,
@@ -284,6 +284,7 @@ async def restart_round(
         swap.applied = True
 
     await session.execute(delete(TeamQuestion))
+    await session.execute(delete(PublishedLeaderboard))
     await session.execute(update(Team).values(score=settings.initial_team_score, swap_available=True, version=Team.version + 1))
 
     rnd.phase = "idle"
@@ -643,6 +644,13 @@ async def leaderboard(session: AsyncSession) -> list[dict[str, Any]]:
     ]
     rows.sort(key=lambda r: (r["rank"], r["name"]))
     return rows
+
+
+async def published_leaderboard(session: AsyncSession) -> list[dict[str, Any]]:
+    snapshot = await session.get(PublishedLeaderboard, 1)
+    if snapshot is None:
+        return []
+    return snapshot.rows
 
 
 def question_public(q: Question, *, phase: str, include_body: bool) -> dict[str, Any]:

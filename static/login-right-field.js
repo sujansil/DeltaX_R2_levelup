@@ -13,7 +13,6 @@
   }
 
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const compact = window.matchMedia("(max-width: 1050px)").matches;
   let renderer;
   let frameId = 0;
 
@@ -21,7 +20,7 @@
     renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
-      antialias: !compact,
+      antialias: true,
       powerPreference: "high-performance"
     });
   } catch (error) {
@@ -29,17 +28,18 @@
   }
 
   renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 80);
-  camera.position.set(0, 0, 9.2);
+  const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera.position.set(0, 0.15, 8.4);
 
-  const composition = new THREE.Group();
-  composition.position.set(compact ? 0.82 : 1.08, 0.05, -0.45);
-  composition.scale.setScalar(compact ? 0.68 : 0.72);
-  composition.rotation.set(-0.18, 0.08, 0.1);
-  scene.add(composition);
+  const structure = new THREE.Group();
+  structure.position.set(2.25, 0.1, -0.5);
+  structure.rotation.set(-0.22, 0.12, 0.16);
+  scene.add(structure);
 
   function createMobius(segments, widthSegments) {
     const positions = [];
@@ -47,12 +47,12 @@
     for (let i = 0; i <= segments; i += 1) {
       const u = (i / segments) * Math.PI * 2;
       for (let j = 0; j <= widthSegments; j += 1) {
-        const v = (j / widthSegments - 0.5) * 1.45;
+        const v = (j / widthSegments - 0.5) * 1.25;
         const radius = 2.05 + v * Math.cos(u * 0.5);
         positions.push(
           radius * Math.cos(u),
           radius * Math.sin(u),
-          v * Math.sin(u * 0.5) * 1.25
+          v * Math.sin(u * 0.5) * 1.35
         );
       }
     }
@@ -70,168 +70,133 @@
     return geometry;
   }
 
-  const ribbonGeometry = createMobius(compact ? 72 : 118, compact ? 8 : 15);
-  const ribbon = new THREE.Mesh(ribbonGeometry, new THREE.MeshStandardMaterial({
-    color: 0x59645b,
-    roughness: 0.86,
-    metalness: 0.14,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.62,
-    depthWrite: false
-  }));
-  ribbon.scale.set(1.08, 1.08, 1.08);
-  composition.add(ribbon);
-
-  const ribbonWire = new THREE.LineSegments(
-    new THREE.WireframeGeometry(ribbonGeometry),
-    new THREE.LineBasicMaterial({
-      color: 0x909b91,
+  const ribbon = new THREE.Mesh(
+    createMobius(112, 14),
+    new THREE.MeshStandardMaterial({
+      color: 0x697064,
+      roughness: 0.72,
+      metalness: 0.28,
+      side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.14,
-      depthWrite: false
+      opacity: 0.78
     })
   );
-  ribbonWire.scale.copy(ribbon.scale).multiplyScalar(1.002);
-  composition.add(ribbonWire);
+  structure.add(ribbon);
 
-  scene.add(new THREE.HemisphereLight(0xb9c2b8, 0x101713, 1.15));
-  const keyLight = new THREE.DirectionalLight(0xb5c1b3, 2.3);
-  keyLight.position.set(-3.5, 4.5, 6);
+  const wire = new THREE.LineSegments(
+    new THREE.WireframeGeometry(ribbon.geometry),
+    new THREE.LineBasicMaterial({ color: 0xc4c8bc, transparent: true, opacity: 0.075 })
+  );
+  wire.scale.setScalar(1.002);
+  structure.add(wire);
+
+  scene.add(new THREE.HemisphereLight(0xdadbd2, 0x171b17, 1.05));
+  const keyLight = new THREE.DirectionalLight(0xc3ccb8, 2.2);
+  keyLight.position.set(3, 5, 6);
   scene.add(keyLight);
-  const rimLight = new THREE.DirectionalLight(0x6c708f, 1.3);
-  rimLight.position.set(4, -1.5, 2);
+  const rimLight = new THREE.DirectionalLight(0x687365, 1.1);
+  rimLight.position.set(-4, -2, 1);
   scene.add(rimLight);
 
-  const orbitGroup = new THREE.Group();
-  composition.add(orbitGroup);
-  const orbitCurves = [];
-  const orbitCount = compact ? 4 : 6;
-
-  function makeOrbit(index) {
+  const trajectoryGroup = new THREE.Group();
+  structure.add(trajectoryGroup);
+  const trajectoryCount = 6;
+  for (let pathIndex = 0; pathIndex < trajectoryCount; pathIndex += 1) {
     const points = [];
-    const samples = compact ? 72 : 104;
-    const phase = index * 0.71;
-    const radiusX = 2.75 + (index % 3) * 0.19;
-    const radiusY = 1.28 + (index % 4) * 0.18;
+    const phase = pathIndex * 0.93;
+    const samples = 150;
     for (let i = 0; i < samples; i += 1) {
-      const angle = (i / samples) * Math.PI * 2;
+      const t = (i / (samples - 1)) * Math.PI * 3.55;
+      const radius = 2.65 + 0.22 * Math.sin(t * 2.3 + phase);
       points.push(new THREE.Vector3(
-        Math.cos(angle + phase * 0.08) * radiusX + Math.sin(angle * 3 + phase) * 0.13,
-        Math.sin(angle) * radiusY,
-        Math.sin(angle * (1.5 + (index % 2) * 0.5) + phase) * (0.9 + index * 0.035)
+        Math.cos(t + phase * 0.18) * radius,
+        Math.sin(t * 1.04 + phase) * (1.36 + pathIndex * 0.055),
+        Math.sin(t * 1.71 + phase) * 1.42
       ));
     }
-    const curve = new THREE.CatmullRomCurve3(points, true, "catmullrom", 0.45);
-    const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(compact ? 130 : 210));
-    const line = new THREE.LineLoop(geometry, new THREE.LineBasicMaterial({
-      color: index % 2 ? 0x89819f : 0x708998,
+    const curve = new THREE.CatmullRomCurve3(points);
+    const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(210));
+    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({
+      color: pathIndex % 2 ? 0x7f8b78 : 0xa7aaa1,
       transparent: true,
-      opacity: compact ? 0.32 : 0.43,
-      depthWrite: false
+      opacity: 0.18
     }));
-    line.rotation.set(
-      -0.72 + index * 0.17,
-      phase * 0.24,
-      -0.42 + index * 0.13
-    );
-    orbitGroup.add(line);
-    orbitCurves.push({ curve, line });
+    line.rotation.set(phase * 0.09, phase * 0.13, phase * 0.05);
+    trajectoryGroup.add(line);
   }
 
-  for (let i = 0; i < orbitCount; i += 1) makeOrbit(i);
-
-  const tracerCount = compact ? 10 : 20;
-  const tracerPositions = new Float32Array(tracerCount * 3);
-  const tracerGeometry = new THREE.BufferGeometry();
-  const tracerAttribute = new THREE.BufferAttribute(tracerPositions, 3);
-  tracerAttribute.setUsage(THREE.DynamicDrawUsage);
-  tracerGeometry.setAttribute("position", tracerAttribute);
-  const tracers = new THREE.Points(tracerGeometry, new THREE.PointsMaterial({
-    color: 0xc0bad4,
-    size: compact ? 0.042 : 0.056,
-    transparent: true,
-    opacity: 0.88,
-    sizeAttenuation: true,
-    depthWrite: false
-  }));
-  orbitGroup.add(tracers);
-
-  const depthParticleCount = compact ? 38 : 74;
-  const depthPositions = new Float32Array(depthParticleCount * 3);
-  for (let i = 0; i < depthParticleCount; i += 1) {
-    const radius = 2.5 + Math.random() * 2.8;
+  const particleCount = 180;
+  const particlePositions = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i += 1) {
+    const radius = 3.2 + Math.random() * 5.8;
     const angle = Math.random() * Math.PI * 2;
-    depthPositions[i * 3] = Math.cos(angle) * radius;
-    depthPositions[i * 3 + 1] = (Math.random() - 0.5) * 5.7;
-    depthPositions[i * 3 + 2] = Math.sin(angle) * radius - 0.9;
+    particlePositions[i * 3] = Math.cos(angle) * radius + 1.2;
+    particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 7;
+    particlePositions[i * 3 + 2] = Math.sin(angle) * radius - 1.5;
   }
-  const depthGeometry = new THREE.BufferGeometry();
-  depthGeometry.setAttribute("position", new THREE.BufferAttribute(depthPositions, 3));
-  const depthParticles = new THREE.Points(depthGeometry, new THREE.PointsMaterial({
-    color: 0xa9b1c3,
-    size: compact ? 0.029 : 0.038,
+  const particlesGeometry = new THREE.BufferGeometry();
+  particlesGeometry.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
+  const particles = new THREE.Points(particlesGeometry, new THREE.PointsMaterial({
+    color: 0xbfc4b8,
+    size: 0.032,
     transparent: true,
-    opacity: 0.5,
-    sizeAttenuation: true,
-    depthWrite: false
+    opacity: 0.32,
+    sizeAttenuation: true
   }));
-  scene.add(depthParticles);
+  scene.add(particles);
 
+  const loginCard = document.querySelector(".login-card");
   const pointerTarget = { x: 0, y: 0 };
   const pointerCurrent = { x: 0, y: 0 };
-
-  function updatePointer(event) {
-    if (reducedMotion.matches || event.isPrimary === false) return;
-    const bounds = canvas.getBoundingClientRect();
-    if (event.clientX < bounds.left || event.clientX > bounds.right
-      || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
-    pointerTarget.x = THREE.MathUtils.clamp(((event.clientX - bounds.left) / bounds.width) * 2 - 1, -1, 1);
-    pointerTarget.y = THREE.MathUtils.clamp(1 - ((event.clientY - bounds.top) / bounds.height) * 2, -1, 1);
-  }
+  let lastPointerMove = 0;
 
   function resetPointer() {
     pointerTarget.x = 0;
     pointerTarget.y = 0;
   }
 
+  function updatePointer(event) {
+    if (reducedMotion.matches || event.isPrimary === false) return;
+    pointerTarget.x = THREE.MathUtils.clamp((event.clientX / window.innerWidth) * 2 - 1, -1, 1);
+    pointerTarget.y = THREE.MathUtils.clamp(1 - (event.clientY / window.innerHeight) * 2, -1, 1);
+    lastPointerMove = performance.now();
+  }
+
   window.addEventListener("pointermove", updatePointer, { passive: true });
+  window.addEventListener("pointercancel", resetPointer, { passive: true });
   window.addEventListener("blur", resetPointer);
   document.documentElement.addEventListener("pointerleave", resetPointer, { passive: true });
 
-  const tracerPoint = new THREE.Vector3();
   const clock = new THREE.Clock();
-
   function render() {
     frameId = 0;
     const elapsed = clock.getElapsedTime();
     const motionScale = reducedMotion.matches ? 0 : 1;
-    pointerCurrent.x = THREE.MathUtils.lerp(pointerCurrent.x, pointerTarget.x, 0.045);
-    pointerCurrent.y = THREE.MathUtils.lerp(pointerCurrent.y, pointerTarget.y, 0.045);
 
-    composition.rotation.x = -0.18 + Math.sin(elapsed * 0.13) * 0.035 * motionScale + pointerCurrent.y * 0.1 * motionScale;
-    composition.rotation.y = 0.08 + elapsed * 0.035 * motionScale + pointerCurrent.x * 0.14 * motionScale;
-    composition.rotation.z = 0.1 + Math.cos(elapsed * 0.11) * 0.03 * motionScale;
-    orbitGroup.rotation.x = elapsed * 0.013 * motionScale - pointerCurrent.y * 0.045 * motionScale;
-    orbitGroup.rotation.y = -elapsed * 0.017 * motionScale + pointerCurrent.x * 0.065 * motionScale;
-    depthParticles.rotation.y = elapsed * 0.005 * motionScale;
-    depthParticles.position.x = pointerCurrent.x * 0.16 * motionScale;
-    depthParticles.position.y = pointerCurrent.y * 0.1 * motionScale;
-    camera.position.x = pointerCurrent.x * 0.18 * motionScale;
-    camera.position.y = pointerCurrent.y * 0.12 * motionScale;
-    camera.lookAt(pointerCurrent.x * 0.035 * motionScale, pointerCurrent.y * 0.025 * motionScale, -0.4);
+    if (lastPointerMove && performance.now() - lastPointerMove > 900) resetPointer();
+    pointerCurrent.x = THREE.MathUtils.lerp(pointerCurrent.x, pointerTarget.x, 0.04);
+    pointerCurrent.y = THREE.MathUtils.lerp(pointerCurrent.y, pointerTarget.y, 0.04);
 
-    for (let i = 0; i < tracerCount; i += 1) {
-      const orbit = orbitCurves[i % orbitCurves.length];
-      const progress = (elapsed * (0.025 + (i % 5) * 0.003) + i / tracerCount) % 1;
-      orbit.curve.getPointAt(progress, tracerPoint);
-      tracerPoint.applyEuler(orbit.line.rotation);
-      const index = i * 3;
-      tracerPositions[index] = tracerPoint.x;
-      tracerPositions[index + 1] = tracerPoint.y;
-      tracerPositions[index + 2] = tracerPoint.z;
+    structure.rotation.x = -0.22 + pointerCurrent.y * 0.045 * motionScale;
+    structure.rotation.y = 0.12 + elapsed * 0.045 * motionScale + pointerCurrent.x * 0.075 * motionScale;
+    structure.rotation.z = 0.16 + Math.sin(elapsed * 0.16) * 0.035 * motionScale - pointerCurrent.x * 0.018 * motionScale;
+
+    trajectoryGroup.rotation.x = elapsed * 0.016 * motionScale + pointerCurrent.y * 0.018 * motionScale;
+    trajectoryGroup.rotation.y = pointerCurrent.x * 0.022 * motionScale;
+    trajectoryGroup.rotation.z = -elapsed * 0.011 * motionScale - pointerCurrent.x * 0.012 * motionScale;
+
+    particles.rotation.y = elapsed * 0.004 * motionScale;
+    particles.position.x = pointerCurrent.x * 0.32 * motionScale;
+    particles.position.y = pointerCurrent.y * 0.22 * motionScale;
+
+    camera.position.x = pointerCurrent.x * 0.2 * motionScale;
+    camera.position.y = 0.15 + pointerCurrent.y * 0.13 * motionScale;
+    camera.lookAt(pointerCurrent.x * 0.055 * motionScale, pointerCurrent.y * 0.035 * motionScale, 0);
+
+    if (loginCard) {
+      loginCard.style.setProperty("--card-tilt-x", `${(-pointerCurrent.y * 0.65 * motionScale).toFixed(3)}deg`);
+      loginCard.style.setProperty("--card-tilt-y", `${(pointerCurrent.x * 0.8 * motionScale).toFixed(3)}deg`);
     }
-    tracerAttribute.needsUpdate = true;
 
     renderer.render(scene, camera);
     if (!document.hidden && !reducedMotion.matches) frameId = requestAnimationFrame(render);
@@ -242,11 +207,10 @@
   }
 
   function resize() {
-    const bounds = canvas.getBoundingClientRect();
-    camera.aspect = bounds.width / bounds.height;
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, compact ? 1.25 : 1.5));
-    renderer.setSize(bounds.width, bounds.height, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
     requestRender();
   }
 
@@ -265,7 +229,6 @@
     requestRender();
   });
 
-  resize();
   document.documentElement.classList.add("right-field-ready");
   requestRender();
 }());

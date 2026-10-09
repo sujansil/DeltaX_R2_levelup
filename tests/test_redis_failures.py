@@ -14,7 +14,7 @@ from app.engine import (
     show_topic,
     start_question,
 )
-from app.models import AuditEvent, Base, Question, SwapEvent, Team, TeamQuestion
+from app.models import AuditEvent, Base, PublishedLeaderboard, Question, SwapEvent, Team, TeamQuestion
 from app.routers import admin as admin_routes
 from app.routers import play as play_routes
 from app.routers.admin import OverrideIn, RestartIn, ScoreIn
@@ -434,7 +434,7 @@ async def test_admin_override_retry_repeats_audit_but_not_score_after_fanout_fai
     ) == 2
 
 
-async def test_publish_leaderboard_can_store_redis_state_then_fail_broadcast(
+async def test_publish_leaderboard_survives_broadcast_failure(
     route_ctx, monkeypatch
 ):
     session, team, target, question = route_ctx
@@ -446,12 +446,13 @@ async def test_publish_leaderboard_can_store_redis_state_then_fail_broadcast(
     monkeypatch.setattr("app.redisutil.set_frozen_leaderboard", store_board)
     monkeypatch.setattr(admin_routes.hub, "broadcast", fail_broadcast)
 
-    with pytest.raises(RedisFailure):
-        await admin_routes.api_publish_leaderboard(
-            session=session, admin=admin_principal()
-        )
+    response = await admin_routes.api_publish_leaderboard(
+        session=session, admin=admin_principal()
+    )
+    assert response == {"ok": True, "published": True}
     assert len(stored) == 1
     assert {row["name"] for row in stored[0]} == {"Alpha", "Beta"}
+    assert (await session.get(PublishedLeaderboard, 1)).rows == stored[0]
 
     monkeypatch.setattr(admin_routes.hub, "broadcast", successful_broadcast)
     response = await admin_routes.api_publish_leaderboard(

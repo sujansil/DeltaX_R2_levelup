@@ -105,6 +105,19 @@ class RoundState(Base):
     current_question: Mapped[Question | None] = relationship()
 
 
+class PublishedLeaderboard(Base):
+    __tablename__ = "published_leaderboard"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    round_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    question_id: Mapped[Any | None] = mapped_column(Uuid, ForeignKey("questions.id"), nullable=True)
+    question_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rows: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+
+
 class TeamQuestion(Base):
     __tablename__ = "team_questions"
     __table_args__ = (UniqueConstraint("team_id", "question_id", name="uq_team_question"),)

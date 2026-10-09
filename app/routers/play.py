@@ -13,8 +13,8 @@ from app.engine import (
     EngineError,
     activate_bounty,
     get_round,
-    leaderboard,
     lock_answer,
+    published_leaderboard,
     tq_player_view,
     use_freeze,
     use_peek,
@@ -99,9 +99,18 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
 
     now = datetime.now(timezone.utc)
     include_body = rnd.phase in ("live", "closed")
-    ctrl = await get_controller(str(principal.team_id))
-    if ctrl == principal.session_id:
-        await heartbeat_controller(str(principal.team_id), principal.session_id, get_settings().controller_ttl_sec)
+    try:
+        ctrl = await get_controller(str(principal.team_id))
+        if ctrl == principal.session_id:
+            await heartbeat_controller(
+                str(principal.team_id),
+                principal.session_id,
+                get_settings().controller_ttl_sec,
+            )
+    except Exception:
+        # State remains readable during Redis outages. Mutating player actions
+        # still require the normal controller checks.
+        ctrl = None
     view = None
     if row and q:
         has_peeked = row.peek
@@ -150,10 +159,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
             "options": safe_options,
         }
 
-    from app.redisutil import get_frozen_leaderboard
-    frozen_board = None if rnd.phase == "idle" else await get_frozen_leaderboard()
-    if frozen_board is None:
-        frozen_board = await leaderboard(session)
+    frozen_board = await published_leaderboard(session)
         
     return {
         "phase": rnd.phase,

@@ -1,36 +1,63 @@
 import os
 import shutil
+import json
 from datetime import datetime, timezone
 from fastapi import File, UploadFile
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db import get_session
+from app.db import SessionLocal, get_session
 from app.deps import Principal, require_admin
 from app.engine import (
     EngineError,
     admin_question_matrix,
+    audit,
     close_question,
     get_round,
     leaderboard,
     override_grade,
+    published_leaderboard,
     reorder_questions,
     restart_round,
     show_topic,
     start_question,
 )
-from app.models import AuditEvent, AuthSession, Question, Team, User
+from app.models import AuditEvent, AuthSession, PublishedLeaderboard, Question, RoundState, SwapEvent, Team, TeamQuestion, User
 from app.redisutil import get_controller, release_controller
 from app.security import hash_password
 from app.ws import ADMIN, PUBLIC, hub, notify_after_commit, team_channel
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+async def get_export_session():
+    """Provide an isolated, non-mutating snapshot transaction for exports."""
+    async with SessionLocal() as session:
+        bind = session.get_bind()
+        if bind.dialect.name == "postgresql":
+            await session.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            )
+        try:
+            yield session
+        finally:
+            # The export transaction is deliberately never committed.
+            await session.rollback()
+
+
+def _json_default(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 class TeamIn(BaseModel):
@@ -77,25 +104,13 @@ def _err(e: EngineError) -> HTTPException:
 async def _fanout(
     session: AsyncSession,
     extra_admin: dict | None = None,
-    public_leaderboard: list[dict[str, Any]] | None = None,
 ) -> None:
     from app.engine import get_round as gr
     from app.models import Question as Q
-    from app.redisutil import get_frozen_leaderboard
 
     rnd = await gr(session)
     live_board = await leaderboard(session)
-    
-    # Try to get the frozen board, fallback to live if it's the very first run
-    frozen_board = public_leaderboard
-    if frozen_board is None and rnd.phase != "idle":
-        frozen_board = await notify_after_commit(
-            get_frozen_leaderboard(),
-            operation="admin.fanout.read_frozen_leaderboard",
-            context={"phase": rnd.phase},
-        )
-    if frozen_board is None:
-        frozen_board = live_board
+    frozen_board = await published_leaderboard(session)
 
     q = await session.get(Q, rnd.current_question_id) if rnd.current_question_id else None
     
@@ -291,11 +306,34 @@ async def set_score(
     session: AsyncSession = Depends(get_session),
     admin: Principal = Depends(require_admin),
 ):
-    team = await session.get(Team, team_id)
+    rnd = await get_round(session, for_update=True)
+    team = (
+        await session.execute(
+            select(Team).where(Team.id == team_id).with_for_update()
+        )
+    ).scalar_one_or_none()
     if team is None:
         raise HTTPException(404, "Team not found")
+    old_score = team.score
     team.score = body.score
     team.version += 1
+    await audit(
+        session,
+        actor=admin.username,
+        kind="score_set",
+        team_id=team.id,
+        question_id=rnd.current_question_id,
+        payload={
+            "old_score": old_score,
+            "new_score": body.score,
+            "delta": body.score - old_score,
+            "round_version": rnd.version,
+            "phase": rnd.phase,
+            "current_question_id": (
+                str(rnd.current_question_id) if rnd.current_question_id else None
+            ),
+        },
+    )
     await session.commit()
     await _fanout(session)
     return {"id": str(team.id), "score": team.score}
@@ -475,26 +513,21 @@ async def api_restart(
         await session.rollback()
         raise _err(e) from None
 
-    from app.redisutil import clear_frozen_leaderboard, set_frozen_leaderboard
+    from app.redisutil import clear_frozen_leaderboard
 
-    reset_board = await leaderboard(session)
     await notify_after_commit(
         clear_frozen_leaderboard(),
         operation="admin.restart.clear_frozen_leaderboard",
         context={"round_version": body.expected_round_version},
     )
-    await notify_after_commit(
-        set_frozen_leaderboard(reset_board),
-        operation="admin.restart.reset_frozen_leaderboard",
-        context={"round_version": body.expected_round_version + 1},
-    )
+    reset_board = await leaderboard(session)
     for team in reset_board:
         await notify_after_commit(
             release_controller(team["id"], force=True),
             operation="admin.restart.release_controller",
             context={"team_id": team["id"]},
         )
-    await _fanout(session, public_leaderboard=reset_board)
+    await _fanout(session)
     return {"ok": True}
 
 
@@ -621,6 +654,234 @@ async def api_audit(session: AsyncSession = Depends(get_session), _: Principal =
     ]
 
 
+@router.get("/export/event")
+async def export_event(
+    _: Principal = Depends(require_admin),
+    export_session: AsyncSession = Depends(get_export_session),
+):
+    """Download a complete, read-only recovery snapshot of the event."""
+    exported_at = datetime.now(timezone.utc)
+
+    rounds = (
+        await export_session.execute(select(RoundState).order_by(RoundState.id))
+    ).scalars().all()
+    teams = (
+        await export_session.execute(select(Team).order_by(Team.name, Team.id))
+    ).scalars().all()
+    users = (
+        await export_session.execute(select(User).order_by(User.username, User.id))
+    ).scalars().all()
+    questions = (
+        await export_session.execute(select(Question).order_by(Question.index, Question.id))
+    ).scalars().all()
+    team_questions = (
+        await export_session.execute(
+            select(TeamQuestion).order_by(TeamQuestion.question_id, TeamQuestion.team_id)
+        )
+    ).scalars().all()
+    swaps = (
+        await export_session.execute(
+            select(SwapEvent).order_by(SwapEvent.created_at, SwapEvent.id)
+        )
+    ).scalars().all()
+    audit_events = (
+        await export_session.execute(
+            select(AuditEvent).order_by(AuditEvent.at, AuditEvent.id)
+        )
+    ).scalars().all()
+    auth_sessions = (
+        await export_session.execute(
+            select(AuthSession).order_by(AuthSession.created_at, AuthSession.id)
+        )
+    ).scalars().all()
+    durable_published_leaderboard = await export_session.get(PublishedLeaderboard, 1)
+
+    current_round = next((row for row in rounds if row.id == 1), None)
+    current_question = None
+    if current_round and current_round.current_question_id:
+        question = next(
+            (row for row in questions if row.id == current_round.current_question_id),
+            None,
+        )
+        current_question = {
+            "id": str(current_round.current_question_id),
+            "index": question.index if question else None,
+            "topic": question.topic if question else None,
+        }
+
+    postgres = {
+        "round_states": [
+            {
+                "id": row.id,
+                "phase": row.phase,
+                "current_question_id": str(row.current_question_id) if row.current_question_id else None,
+                "topic_shown_at": row.topic_shown_at,
+                "live_started_at": row.live_started_at,
+                "global_deadline_at": row.global_deadline_at,
+                "closed_at": row.closed_at,
+                "reveal_cards": row.reveal_cards,
+                "version": row.version,
+            }
+            for row in rounds
+        ],
+        "teams": [
+            {
+                "id": str(row.id),
+                "name": row.name,
+                "score": row.score,
+                "swap_available": row.swap_available,
+                "version": row.version,
+                "created_at": row.created_at,
+            }
+            for row in teams
+        ],
+        "users": [
+            {
+                "id": str(row.id),
+                "username": row.username,
+                "role": row.role,
+                "team_id": str(row.team_id) if row.team_id else None,
+                "is_active": row.is_active,
+                "created_at": row.created_at,
+            }
+            for row in users
+        ],
+        "questions": [
+            {
+                "id": str(row.id),
+                "index": row.index,
+                "topic": row.topic,
+                "prompt": row.prompt,
+                "qtype": row.qtype,
+                "media_url": row.media_url,
+                "options": row.options,
+                "answer_key": row.answer_key,
+                "hint": row.hint,
+                "created_at": row.created_at,
+            }
+            for row in questions
+        ],
+        "team_questions": [
+            {
+                "id": str(row.id),
+                "team_id": str(row.team_id),
+                "question_id": str(row.question_id),
+                "bounty": row.bounty,
+                "freeze": row.freeze,
+                "peek": row.peek,
+                "swap_used": row.swap_used,
+                "freeze_elapsed_ms": row.freeze_elapsed_ms,
+                "locked": row.locked,
+                "locked_elapsed_ms": row.locked_elapsed_ms,
+                "deadline_at": row.deadline_at,
+                "answer": row.answer,
+                "kingslayer_eligible": row.kingslayer_eligible,
+                "points_delta": row.points_delta,
+                "graded": row.graded,
+                "is_correct": row.is_correct,
+                "admin_override": row.admin_override,
+            }
+            for row in team_questions
+        ],
+        "swap_events": [
+            {
+                "id": str(row.id),
+                "question_id": str(row.question_id),
+                "source_team_id": str(row.source_team_id),
+                "target_team_id": str(row.target_team_id),
+                "created_at": row.created_at,
+                "applied": row.applied,
+            }
+            for row in swaps
+        ],
+        "audit_events": [
+            {
+                "id": str(row.id),
+                "at": row.at,
+                "actor": row.actor,
+                "team_id": str(row.team_id) if row.team_id else None,
+                "question_id": str(row.question_id) if row.question_id else None,
+                "kind": row.kind,
+                "payload": row.payload,
+            }
+            for row in audit_events
+        ],
+        "auth_sessions": [
+            {
+                "id": str(row.id),
+                "user_id": str(row.user_id),
+                "team_id": str(row.team_id) if row.team_id else None,
+                "slot": row.slot,
+                "created_at": row.created_at,
+                "last_seen_at": row.last_seen_at,
+                "expires_at": row.expires_at,
+                "revoked_at": row.revoked_at,
+                "device_label": row.device_label,
+                "user_agent": row.user_agent,
+            }
+            for row in auth_sessions
+        ],
+        "published_leaderboard": (
+            {
+                "id": durable_published_leaderboard.id,
+                "published_at": durable_published_leaderboard.published_at,
+                "published_by": durable_published_leaderboard.published_by,
+                "round_version": durable_published_leaderboard.round_version,
+                "phase": durable_published_leaderboard.phase,
+                "question_id": (
+                    str(durable_published_leaderboard.question_id)
+                    if durable_published_leaderboard.question_id
+                    else None
+                ),
+                "question_index": durable_published_leaderboard.question_index,
+                "rows": durable_published_leaderboard.rows,
+            }
+            if durable_published_leaderboard
+            else None
+        ),
+    }
+
+    try:
+        from app.redisutil import get_frozen_leaderboard
+
+        controllers = {
+            str(team.id): await get_controller(str(team.id)) for team in teams
+        }
+        redis_state = {
+            "available": True,
+            "controllers": controllers,
+            "published_leaderboard": await get_frozen_leaderboard(),
+            "error": None,
+        }
+    except Exception:
+        redis_state = {
+            "available": False,
+            "controllers": None,
+            "published_leaderboard": None,
+            "error": "unavailable",
+        }
+
+    payload = {
+        "schema_version": 1,
+        "exported_at": exported_at,
+        "application": "levelup",
+        "summary": {
+            "current_phase": current_round.phase if current_round else None,
+            "current_round_version": current_round.version if current_round else None,
+            "current_question": current_question,
+        },
+        "postgres": postgres,
+        "redis": redis_state,
+    }
+    body = json.dumps(payload, default=_json_default, ensure_ascii=False, indent=2)
+    filename = f"levelup-event-{exported_at.strftime('%Y-%m-%dT%H-%M-%SZ')}.json"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/round/reveal-cards/{on}")
 async def reveal_cards(
     on: int,
@@ -639,14 +900,51 @@ async def api_publish_leaderboard(
     admin: Principal = Depends(require_admin),
 ):
     from app.redisutil import set_frozen_leaderboard
+
     live_board = await leaderboard(session)
-    
-    # Save current live scores to Redis
-    await set_frozen_leaderboard(live_board)
-    
-    # Broadcast the newly published leaderboard to all player screens instantly
-    await hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": live_board})
-    
+    rnd = await get_round(session)
+    question = await session.get(Question, rnd.current_question_id) if rnd.current_question_id else None
+    published_at = datetime.now(timezone.utc)
+    snapshot = await session.get(PublishedLeaderboard, 1, with_for_update=True)
+    if snapshot is None:
+        snapshot = PublishedLeaderboard(id=1)
+        session.add(snapshot)
+    snapshot.published_at = published_at
+    snapshot.published_by = admin.username
+    snapshot.round_version = rnd.version
+    snapshot.phase = rnd.phase
+    snapshot.question_id = rnd.current_question_id
+    snapshot.question_index = question.index if question else None
+    snapshot.rows = live_board
+    await audit(
+        session,
+        actor=admin.username,
+        kind="leaderboard_publish",
+        question_id=rnd.current_question_id,
+        payload={
+            "published_at": published_at.isoformat(),
+            "round_version": rnd.version,
+            "phase": rnd.phase,
+            "question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
+            "question_index": question.index if question else None,
+            "rows": live_board,
+            "actor": admin.username,
+        },
+    )
+    await session.commit()
+
+    context = {"round_version": rnd.version, "published_at": published_at.isoformat()}
+    await notify_after_commit(
+        set_frozen_leaderboard(live_board),
+        operation="admin.publish_leaderboard.cache",
+        context=context,
+    )
+    await notify_after_commit(
+        hub.broadcast(PUBLIC, {"type": "leaderboard", "leaderboard": live_board}),
+        operation="admin.publish_leaderboard.broadcast",
+        context=context,
+    )
+
     return {"ok": True, "published": True}
 
 # Ensure the upload directory exists

@@ -17,6 +17,7 @@ from app.models import (
     AuthSession,
     Base,
     Question,
+    PublishedLeaderboard,
     RoundState,
     SwapEvent,
     Team,
@@ -305,26 +306,38 @@ async def test_restart_audit_captures_metadata_cancels_swaps_and_preserves_sessi
     assert preserved_swap.applied is True
 
 
-async def test_restart_replaces_stale_frozen_board_and_fanout_uses_reset_scores(
+async def test_restart_clears_published_board_without_auto_publishing_reset_scores(
     restart_ctx, monkeypatch
 ):
     session = restart_ctx["session"]
     rnd = await configure_phase(session, restart_ctx["question"], "idle")
-    fanout_boards = []
+    session.add(
+        PublishedLeaderboard(
+            id=1,
+            published_at=datetime.now(timezone.utc),
+            published_by="admin",
+            round_version=rnd.version,
+            phase=rnd.phase,
+            question_id=None,
+            question_index=None,
+            rows=restart_ctx["frozen"]["value"],
+        )
+    )
+    await session.commit()
+    fanout_calls = 0
 
     async def capture_fanout(session, extra_admin=None, public_leaderboard=None):
-        fanout_boards.append(public_leaderboard)
+        nonlocal fanout_calls
+        fanout_calls += 1
 
     monkeypatch.setattr(admin_routes, "_fanout", capture_fanout)
     await admin_routes.api_restart(
         body=restart_body(rnd), session=session, admin=admin_principal()
     )
 
-    reset_board = restart_ctx["frozen"]["value"]
-    assert reset_board is not None
-    assert {row["score"] for row in reset_board} == {get_settings().initial_team_score}
-    assert all(row["id"] != "stale" for row in reset_board)
-    assert fanout_boards == [reset_board]
+    assert restart_ctx["frozen"]["value"] is None
+    assert await session.get(PublishedLeaderboard, 1) is None
+    assert fanout_calls == 1
 
 
 async def test_controller_cleanup_failure_is_logged_and_does_not_undo_restart(
