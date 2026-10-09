@@ -23,8 +23,10 @@ from app.engine import (
     get_round,
     leaderboard,
     override_grade,
+    pause_question,
     published_leaderboard,
     reorder_questions,
+    resume_question,
     restart_round,
     show_topic,
     start_question,
@@ -121,15 +123,17 @@ async def _fanout(
         "server_now": None,
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
+        "global_deadline_at": rnd.global_deadline_at.isoformat() if rnd.global_deadline_at else None,
+        "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
         "question": (
             {
                 "id": str(q.id),
                 "index": q.index,
                 "topic": q.topic,
                 "type": q.qtype,
-                "prompt": q.prompt if rnd.phase in ("live", "closed") else None,
-                "media_url": q.media_url if rnd.phase in ("live", "closed") else None,
-                "options": q.options if rnd.phase in ("live", "closed") else None,
+                "prompt": q.prompt if rnd.phase in ("live", "paused", "closed") else None,
+                "media_url": q.media_url if rnd.phase in ("live", "paused", "closed") else None,
+                "options": q.options if rnd.phase in ("live", "paused", "closed") else None,
             }
             if q
             else None
@@ -454,6 +458,51 @@ async def api_start(
     return {"ok": True}
 
 
+@router.post("/round/pause")
+async def api_pause(
+    session: AsyncSession = Depends(get_session),
+    admin: Principal = Depends(require_admin),
+):
+    try:
+        rnd, changed = await pause_question(session, actor=admin.username)
+        if changed:
+            await session.commit()
+    except EngineError as e:
+        await session.rollback()
+        raise _err(e) from None
+    if changed:
+        await _fanout(session)
+    return {
+        "ok": True,
+        "paused": True,
+        "already_paused": not changed,
+        "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
+        "version": rnd.version,
+    }
+
+
+@router.post("/round/resume")
+async def api_resume(
+    session: AsyncSession = Depends(get_session),
+    admin: Principal = Depends(require_admin),
+):
+    try:
+        rnd, changed = await resume_question(session, actor=admin.username)
+        if changed:
+            await session.commit()
+    except EngineError as e:
+        await session.rollback()
+        raise _err(e) from None
+    if changed:
+        await _fanout(session)
+    return {
+        "ok": True,
+        "paused": False,
+        "already_resumed": not changed,
+        "version": rnd.version,
+    }
+
+
 @router.post("/round/close")
 async def api_close(
     session: AsyncSession = Depends(get_session),
@@ -548,7 +597,7 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
         dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
         global_deadline_ms = int(dt.timestamp() * 1000) + 45000
 
-    elif rnd.phase == "live" and rnd.live_started_at:
+    elif rnd.phase in ("live", "paused") and rnd.live_started_at:
         dt = rnd.live_started_at.replace(tzinfo=timezone.utc) if not rnd.live_started_at.tzinfo else rnd.live_started_at
         global_deadline_ms = int(dt.timestamp() * 1000) + 150000
         if rnd.global_deadline_at:
@@ -561,6 +610,8 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
         "server_now": datetime.now(timezone.utc).isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
+        "global_deadline_at": rnd.global_deadline_at.isoformat() if rnd.global_deadline_at else None,
+        "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
         "global_deadline_ms": global_deadline_ms,
         "current_question_id": str(rnd.current_question_id) if rnd.current_question_id else None,
         "question": (
@@ -569,9 +620,9 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
                 "index": q.index,
                 "topic": q.topic,
                 "type": q.qtype,
-                "prompt": q.prompt if rnd.phase in ("live", "closed") else None,
-                "media_url": q.media_url if rnd.phase in ("live", "closed") else None,
-                "options": q.options if rnd.phase in ("live", "closed") else None,
+                "prompt": q.prompt if rnd.phase in ("live", "paused", "closed") else None,
+                "media_url": q.media_url if rnd.phase in ("live", "paused", "closed") else None,
+                "options": q.options if rnd.phase in ("live", "paused", "closed") else None,
             }
             if q
             else None
@@ -718,6 +769,7 @@ async def export_event(
                 "topic_shown_at": row.topic_shown_at,
                 "live_started_at": row.live_started_at,
                 "global_deadline_at": row.global_deadline_at,
+                "paused_at": row.paused_at,
                 "closed_at": row.closed_at,
                 "reveal_cards": row.reveal_cards,
                 "version": row.version,

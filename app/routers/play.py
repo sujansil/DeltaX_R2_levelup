@@ -98,7 +98,8 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc)
-    include_body = rnd.phase in ("live", "closed")
+    timing_now = rnd.paused_at if rnd.phase == "paused" and rnd.paused_at else now
+    include_body = rnd.phase in ("live", "paused", "closed")
     try:
         ctrl = await get_controller(str(principal.team_id))
         if ctrl == principal.session_id:
@@ -114,7 +115,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
     view = None
     if row and q:
         has_peeked = row.peek
-        view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=now, include_hint=has_peeked)
+        view = tq_player_view(row, q, live_started_at=rnd.live_started_at, now=timing_now, include_hint=has_peeked)
 
     
 
@@ -128,7 +129,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
         deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
 
-    elif rnd.phase == "live" and rnd.live_started_at is not None:
+    elif rnd.phase in ("live", "paused") and rnd.live_started_at is not None:
         timer_total_sec = get_settings().question_duration_sec
         if row and row.deadline_at is not None:
             dt = row.deadline_at.replace(tzinfo=timezone.utc) if not row.deadline_at.tzinfo else row.deadline_at
@@ -138,7 +139,8 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
             deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
 
         if deadline_ms is not None:
-            now_ms = int(now.timestamp() * 1000)
+            reference_now = timing_now.replace(tzinfo=timezone.utc) if not timing_now.tzinfo else timing_now
+            now_ms = int(reference_now.timestamp() * 1000)
             time_left_sec = max(0, math.ceil((deadline_ms - now_ms) / 1000))
     # -------------------------------
     question = None
@@ -166,6 +168,8 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         "server_now": now.isoformat(),
         "topic_shown_at": rnd.topic_shown_at.isoformat() if rnd.topic_shown_at else None,
         "live_started_at": rnd.live_started_at.isoformat() if rnd.live_started_at else None,
+        "global_deadline_at": rnd.global_deadline_at.isoformat() if rnd.global_deadline_at else None,
+        "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
         
         "timer_total_sec": timer_total_sec,
         "deadline_ms": deadline_ms,

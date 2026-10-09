@@ -40,7 +40,7 @@ class EngineError(Exception):
 async def get_round(session: AsyncSession, *, for_update: bool = False) -> RoundState:
     stmt = select(RoundState).where(RoundState.id == 1)
     if for_update:
-        stmt = stmt.with_for_update()
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
         row = RoundState(id=1, phase="idle")
@@ -106,7 +106,7 @@ async def snapshot_kingslayer(session: AsyncSession, question: Question) -> dict
 async def show_topic(session: AsyncSession, question_id: UUID, actor: str, clock: Clock | None = None) -> RoundState:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
-    if rnd.phase == "live":
+    if rnd.phase in ("live", "paused"):
         raise EngineError("bad_phase", "Cannot change question while live")
     q = await session.get(Question, question_id)
     if q is None:
@@ -117,6 +117,7 @@ async def show_topic(session: AsyncSession, question_id: UUID, actor: str, clock
     rnd.topic_shown_at = clock.now()
     rnd.live_started_at = None
     rnd.global_deadline_at = None
+    rnd.paused_at = None
     rnd.closed_at = None
     rnd.version += 1
 
@@ -150,6 +151,7 @@ async def start_question(session: AsyncSession, actor: str, clock: Clock | None 
     rnd.phase = "live"
     rnd.live_started_at = now
     rnd.global_deadline_at = now + timedelta(milliseconds=QUESTION_MS)
+    rnd.paused_at = None
     rnd.closed_at = None
     rnd.version += 1
     rows = (
@@ -167,6 +169,8 @@ async def start_question(session: AsyncSession, actor: str, clock: Clock | None 
 async def close_question(session: AsyncSession, actor: str, clock: Clock | None = None) -> RoundState:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
+    if rnd.phase == "paused":
+        raise EngineError("round_paused", "Resume the question before closing it", 409)
     if rnd.phase != "live" or rnd.current_question_id is None:
         raise EngineError("bad_phase", "No live question to close")
     q = await session.get(Question, rnd.current_question_id)
@@ -241,6 +245,123 @@ async def close_question(session: AsyncSession, actor: str, clock: Clock | None 
     return rnd
 
 
+async def pause_question(
+    session: AsyncSession,
+    actor: str,
+    clock: Clock | None = None,
+) -> tuple[RoundState, bool]:
+    clock = clock or SystemClock()
+    rnd = await get_round(session, for_update=True)
+    if rnd.phase == "paused":
+        return rnd, False
+    if (
+        rnd.phase != "live"
+        or rnd.current_question_id is None
+        or rnd.live_started_at is None
+        or rnd.global_deadline_at is None
+    ):
+        raise EngineError("bad_phase", "Only a live question can be paused", 409)
+
+    now = clock.now()
+    if _normalize_utc(now) >= _normalize_utc(rnd.global_deadline_at):
+        raise EngineError("time_up", "Question deadline has already been reached", 409)
+
+    version_before = rnd.version
+    rnd.phase = "paused"
+    rnd.paused_at = now
+    rnd.version += 1
+    await audit(
+        session,
+        actor=actor,
+        kind="round_pause",
+        question_id=rnd.current_question_id,
+        payload={
+            "paused_at": now.isoformat(),
+            "phase_before": "live",
+            "round_version_before": version_before,
+            "round_version_after": rnd.version,
+            "live_started_at": rnd.live_started_at.isoformat(),
+            "global_deadline_at": rnd.global_deadline_at.isoformat(),
+        },
+    )
+    await session.flush()
+    return rnd, True
+
+
+async def resume_question(
+    session: AsyncSession,
+    actor: str,
+    clock: Clock | None = None,
+) -> tuple[RoundState, bool]:
+    clock = clock or SystemClock()
+    rnd = await get_round(session, for_update=True)
+    if rnd.phase == "live" and rnd.paused_at is None:
+        return rnd, False
+    if (
+        rnd.phase != "paused"
+        or rnd.paused_at is None
+        or rnd.current_question_id is None
+        or rnd.live_started_at is None
+        or rnd.global_deadline_at is None
+    ):
+        raise EngineError("bad_phase", "Only a paused live question can be resumed", 409)
+
+    resumed_at = clock.now()
+    paused_at = rnd.paused_at
+    pause_duration = _normalize_utc(resumed_at) - _normalize_utc(paused_at)
+    if pause_duration.total_seconds() < 0:
+        raise EngineError("clock_error", "Resume time precedes pause time", 409)
+
+    rows = (
+        await session.execute(
+            select(TeamQuestion)
+            .where(TeamQuestion.question_id == rnd.current_question_id)
+            .with_for_update()
+        )
+    ).scalars().all()
+    old_live_started_at = rnd.live_started_at
+    old_global_deadline_at = rnd.global_deadline_at
+    version_before = rnd.version
+    deadline_changes = []
+    for row in rows:
+        old_deadline = row.deadline_at
+        if old_deadline is not None:
+            row.deadline_at = old_deadline + pause_duration
+        deadline_changes.append(
+            {
+                "team_id": str(row.team_id),
+                "old_deadline_at": old_deadline.isoformat() if old_deadline else None,
+                "new_deadline_at": row.deadline_at.isoformat() if row.deadline_at else None,
+            }
+        )
+
+    rnd.live_started_at = old_live_started_at + pause_duration
+    rnd.global_deadline_at = old_global_deadline_at + pause_duration
+    rnd.phase = "live"
+    rnd.paused_at = None
+    rnd.version += 1
+    await audit(
+        session,
+        actor=actor,
+        kind="round_resume",
+        question_id=rnd.current_question_id,
+        payload={
+            "paused_at": paused_at.isoformat(),
+            "resumed_at": resumed_at.isoformat(),
+            "pause_duration_ms": int(pause_duration.total_seconds() * 1000),
+            "old_live_started_at": old_live_started_at.isoformat(),
+            "new_live_started_at": rnd.live_started_at.isoformat(),
+            "old_global_deadline_at": old_global_deadline_at.isoformat(),
+            "new_global_deadline_at": rnd.global_deadline_at.isoformat(),
+            "round_version_before": version_before,
+            "round_version_after": rnd.version,
+            "team_deadlines": deadline_changes,
+        },
+    )
+    await session.flush()
+    return rnd, True
+
+
 async def restart_round(
     session: AsyncSession,
     actor: str,
@@ -251,10 +372,10 @@ async def restart_round(
     rnd = await get_round(session, for_update=True)
     settings = get_settings()
 
-    if rnd.phase == "live":
+    if rnd.phase in ("live", "paused"):
         raise EngineError(
             "live_restart_forbidden",
-            "Cannot restart while a question is live",
+            "Cannot restart while a question is live or paused",
             409,
         )
     if rnd.version != expected_round_version:
@@ -292,6 +413,7 @@ async def restart_round(
     rnd.topic_shown_at = None
     rnd.live_started_at = None
     rnd.global_deadline_at = None
+    rnd.paused_at = None
     rnd.closed_at = None
     rnd.reveal_cards = False
     rnd.version += 1
@@ -555,7 +677,7 @@ async def override_grade(
     q = await session.get(Question, question_id)
     if q is None:
         raise EngineError("not_found", "Question not found", 404)
-    if rnd.phase == "live" and rnd.current_question_id == question_id:
+    if rnd.phase in ("live", "paused") and rnd.current_question_id == question_id:
         raise EngineError("bad_phase", "Wait until the question is closed")
     team = await _team_for_update(session, team_id)
     row = await _tq(session, team_id, question_id, for_update=True)

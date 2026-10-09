@@ -56,7 +56,7 @@ button { color: inherit; }
 .scroll-pane { overflow: auto; scrollbar-width: thin; scrollbar-color: #225631 transparent; }
 
 .control-body { display: grid; gap: 5px; grid-template-rows: auto auto auto; align-content: start; }
-.phase-strip { display: grid; grid-template-columns: repeat(4,1fr); border: 1px solid var(--line); }
+.phase-strip { display: grid; grid-template-columns: repeat(5,1fr); border: 1px solid var(--line); }
 .phase-strip span { padding: 4px 2px; text-align: center; font-size: 7px; color: #45644c; border-right: 1px solid var(--line); }
 .phase-strip span:last-child { border-right: 0; }
 .phase-strip span.active { color: #061008; background: var(--green); font-weight: 800; }

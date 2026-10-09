@@ -37,6 +37,8 @@
   function bindControls() {
     $("next-button").addEventListener("click", nextQuestion);
     $("start-button").addEventListener("click", startQuestion);
+    $("pause-button").addEventListener("click", pauseQuestion);
+    $("resume-button").addEventListener("click", resumeQuestion);
     $("close-button").addEventListener("click", closeQuestion);
     $("publish-button").addEventListener("click", publishLeaderboard);
     $("view-question-button").addEventListener("click", () => openQuestionViewer(selectedQuestionId || roundState?.current_question_id));
@@ -118,10 +120,12 @@
     const selected = questions.find((q) => q.id === selectedQuestionId);
     $("selected-question-label").textContent = selected ? `Q${selected.index}` : "NONE";
     $("start-button").disabled = phase !== "topic";
+    $("pause-button").disabled = phase !== "live";
+    $("resume-button").disabled = phase !== "paused";
     $("close-button").disabled = phase !== "live";
-    $("restart-open").disabled = phase === "live";
+    $("restart-open").disabled = phase === "live" || phase === "paused";
     const next = getNextQuestion();
-    $("next-button").disabled = phase === "live" || phase === "topic" || !next;
+    $("next-button").disabled = phase === "live" || phase === "paused" || phase === "topic" || !next;
     $("next-button").textContent = next ? `NEXT → Q${next.index}` : "NO NEXT QUESTION";
     $("view-question-button").disabled = !(selectedQuestionId || roundState?.current_question_id);
   }
@@ -394,6 +398,20 @@
     }, "Question started");
   }
 
+  async function pauseQuestion() {
+    await action(async () => {
+      await api("/api/v1/admin/round/pause", { method: "POST" });
+      await refreshCore({ quiet: true });
+    }, "Question paused");
+  }
+
+  async function resumeQuestion() {
+    await action(async () => {
+      await api("/api/v1/admin/round/resume", { method: "POST" });
+      await refreshCore({ quiet: true });
+    }, "Question resumed");
+  }
+
   async function closeQuestion() {
     if (!confirm("Close and grade the live question now?")) return;
     await action(async () => {
@@ -563,8 +581,10 @@
   function formatTeamTime(row) {
     if (row?.graded) return "DONE";
     if (row?.locked) return "LOCKED";
-    if (!row?.deadline_at || roundState?.phase !== "live") return "—";
-    const now = roundState?.server_now ? serverNowMs(roundState.server_now) : Date.now();
+    if (!row?.deadline_at || (roundState?.phase !== "live" && roundState?.phase !== "paused")) return "—";
+    const now = roundState?.phase === "paused" && roundState?.paused_at
+      ? new Date(roundState.paused_at).getTime()
+      : roundState?.server_now ? serverNowMs(roundState.server_now) : Date.now();
     return formatRemaining(new Date(row.deadline_at).getTime() - now, !!row.freeze);
   }
 
@@ -572,8 +592,11 @@
     document.querySelectorAll(".team-time").forEach((el) => {
       if (el.dataset.graded === "1") { el.textContent = "DONE"; return; }
       if (el.dataset.locked === "1") { el.textContent = "LOCKED"; return; }
-      if (!el.dataset.deadline || roundState?.phase !== "live") { el.textContent = "—"; return; }
-      el.textContent = formatRemaining(new Date(el.dataset.deadline).getTime() - now, el.dataset.freeze === "1");
+      if (!el.dataset.deadline || (roundState?.phase !== "live" && roundState?.phase !== "paused")) { el.textContent = "—"; return; }
+      const reference = roundState?.phase === "paused" && roundState?.paused_at
+        ? new Date(roundState.paused_at).getTime()
+        : now;
+      el.textContent = formatRemaining(new Date(el.dataset.deadline).getTime() - reference, el.dataset.freeze === "1");
       el.classList.toggle("freeze-time", el.dataset.freeze === "1");
     });
   }
@@ -586,7 +609,10 @@
 
   function computeCountdown(now) {
     if (!roundState?.global_deadline_ms) return "—";
-    const ms = Math.max(0, Number(roundState.global_deadline_ms) - now);
+    const reference = roundState?.phase === "paused" && roundState?.paused_at
+      ? new Date(roundState.paused_at).getTime()
+      : now;
+    const ms = Math.max(0, Number(roundState.global_deadline_ms) - reference);
     const sec = Math.ceil(ms / 1000);
     return `${sec}s`;
   }

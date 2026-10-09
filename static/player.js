@@ -377,7 +377,7 @@
     if (!state) return;
     const remainingMs = computeRemainingMs(state);
     const formatted = formatClock(remainingMs);
-    $("top-timer").textContent = (state.phase === "live" || state.phase === "topic") ? formatted : "—";
+    $("top-timer").textContent = (state.phase === "live" || state.phase === "paused" || state.phase === "topic") ? formatted : "—";
     $("live-timer").textContent = formatted;
     $("topic-timer").textContent = formatted;
 
@@ -448,8 +448,11 @@
   }
 
   function computeRemainingMs(state) {
-    if (!state?.deadline_ms || (state.phase !== "live" && state.phase !== "topic")) return 0;
-    return Math.max(0, Number(state.deadline_ms) - serverNowMs(state.server_now));
+    if (!state?.deadline_ms || (state.phase !== "live" && state.phase !== "paused" && state.phase !== "topic")) return 0;
+    const referenceMs = state.phase === "paused" && state.paused_at
+      ? new Date(state.paused_at).getTime()
+      : serverNowMs(state.server_now);
+    return Math.max(0, Number(state.deadline_ms) - referenceMs);
   }
 
   function syncServerClock(serverNow) {
