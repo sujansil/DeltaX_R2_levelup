@@ -87,6 +87,14 @@ async def hold_pause(session, clock, acquired, release):
     return result
 
 
+async def hold_freeze(session, team_id, clock, acquired, release):
+    result = await use_freeze(session, team_id, "alpha", clock)
+    acquired.set()
+    await release.wait()
+    await session.commit()
+    return result
+
+
 async def test_answer_vs_pause_is_serialized(pg_pause_ctx):
     maker = pg_pause_ctx["maker"]
     clock = pg_pause_ctx["clock"]
@@ -140,6 +148,67 @@ async def test_freeze_vs_pause_is_serialized(pg_pause_ctx):
         ).scalar_one()
         assert row.freeze is False
         assert (await verify.get(Team, pg_pause_ctx["first_id"])).score == 5000
+
+
+async def test_freeze_extension_prevents_stale_autoclose(pg_pause_ctx, monkeypatch):
+    async def acquire_lock(_name, ttl_sec):
+        return True
+
+    monkeypatch.setattr("app.redisutil.acquire_lock", acquire_lock)
+    maker = pg_pause_ctx["maker"]
+    freeze_clock = pg_pause_ctx["clock"]
+    freeze_clock.advance_ms(149_999)
+    close_clock = FakeClock(freeze_clock.now() + timedelta(milliseconds=1))
+    acquired, release = asyncio.Event(), asyncio.Event()
+
+    async with maker() as freezer, maker() as closer:
+        freeze_task = asyncio.create_task(
+            hold_freeze(
+                freezer,
+                pg_pause_ctx["first_id"],
+                freeze_clock,
+                acquired,
+                release,
+            )
+        )
+        await asyncio.wait_for(acquired.wait(), 5)
+        close_task = asyncio.create_task(try_autoclose(closer, close_clock))
+        await asyncio.sleep(0.1)
+        assert not close_task.done()
+
+        release.set()
+        await freeze_task
+        assert await close_task is False
+        await closer.commit()
+
+    async with maker() as verify:
+        rnd = await get_round(verify)
+        assert rnd.phase == "live"
+        assert rnd.global_deadline_at == rnd.live_started_at + timedelta(seconds=180)
+        assert await verify.scalar(
+            select(func.count()).select_from(TeamQuestion).where(TeamQuestion.graded.is_(True))
+        ) == 0
+        assert (await verify.get(Team, pg_pause_ctx["first_id"])).score == 4250
+        assert await verify.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.kind == "freeze")
+        ) == 1
+        assert await verify.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.kind == "close_question")
+        ) == 0
+
+    close_clock.advance_sec(30)
+    async with maker() as closer:
+        assert await try_autoclose(closer, close_clock) is True
+        await closer.commit()
+
+    async with maker() as verify:
+        assert (await get_round(verify)).phase == "closed"
+        assert await verify.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.kind == "close_question")
+        ) == 1
+        assert await verify.scalar(
+            select(func.count()).select_from(TeamQuestion).where(TeamQuestion.graded.is_(True))
+        ) == 2
 
 
 async def test_pause_vs_autoclose_near_deadline_is_serialized(pg_pause_ctx):

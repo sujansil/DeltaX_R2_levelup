@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.clock import FakeClock
@@ -26,7 +27,7 @@ from app.engine import (
     use_peek,
     use_swap,
 )
-from app.models import Base, Question, Team, TeamQuestion
+from app.models import AuditEvent, Base, Question, Team, TeamQuestion
 from app.routers.admin import QuestionIn, api_round
 from app.routers.play import _require_controller, release, state
 from app.scoring import BOUNTY_COST, PEEK_COST, QUESTION_MS
@@ -153,6 +154,45 @@ async def test_freeze_stacks_round_deadline_for_all_teams(ctx):
     assert await try_autoclose(session, clock) is False
     clock.advance_sec(1)
     assert await try_autoclose(session, clock) is True
+
+
+async def test_autoclose_rechecks_freeze_extended_deadline(ctx):
+    session, clock, t1, _t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    clock.advance_sec(120)
+    await use_freeze(session, t1.id, "alpha", clock)
+    clock.advance_sec(30)
+
+    assert await close_question(
+        session,
+        "system:autoclose",
+        clock,
+        require_deadline=True,
+    ) is None
+    assert (await get_round(session)).phase == "live"
+    assert await session.scalar(
+        select(func.count()).select_from(AuditEvent).where(AuditEvent.kind == "close_question")
+    ) == 0
+
+    clock.advance_sec(30)
+    assert await try_autoclose(session, clock) is True
+    assert (await get_round(session)).phase == "closed"
+    assert await session.scalar(
+        select(func.count()).select_from(AuditEvent).where(AuditEvent.kind == "close_question")
+    ) == 1
+
+
+async def test_manual_close_ignores_freeze_extended_deadline(ctx):
+    session, clock, t1, _t2, q = ctx
+    await show_topic(session, q.id, "admin", clock)
+    await start_question(session, "admin", clock)
+    clock.advance_sec(120)
+    await use_freeze(session, t1.id, "alpha", clock)
+
+    assert await close_question(session, "admin", clock) is not None
+    assert (await get_round(session)).phase == "closed"
 
 
 async def test_freeze_keeps_player_deadline_but_caps_global_deadline(ctx):

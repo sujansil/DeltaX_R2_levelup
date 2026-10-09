@@ -34,6 +34,10 @@ def test_admin_frontend_is_local_and_exposes_session_and_restart_controls():
     assert 'id="session-list"' in html
     assert 'id="restart-modal"' in html
     assert "/sessions/revoke-all" in js
+    assert "recent · ${validCount} / 4 valid" in js
+    assert "CONTROLLER UNKNOWN" in js
+    assert "CONTROLLER LEASE STALE" in js
+    assert "controller state unavailable" in js
     assert 'confirmation, expected_round_version: roundState.version' in js
 
 

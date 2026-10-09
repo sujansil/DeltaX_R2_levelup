@@ -166,17 +166,30 @@ async def start_question(session: AsyncSession, actor: str, clock: Clock | None 
     return rnd
 
 
-async def close_question(session: AsyncSession, actor: str, clock: Clock | None = None) -> RoundState:
+async def close_question(
+    session: AsyncSession,
+    actor: str,
+    clock: Clock | None = None,
+    *,
+    require_deadline: bool = False,
+) -> RoundState | None:
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
     if rnd.phase == "paused":
         raise EngineError("round_paused", "Resume the question before closing it", 409)
     if rnd.phase != "live" or rnd.current_question_id is None:
         raise EngineError("bad_phase", "No live question to close")
+    now = clock.now()
+    if require_deadline:
+        assert rnd.live_started_at is not None
+        deadline_at = rnd.global_deadline_at or (
+            rnd.live_started_at + timedelta(milliseconds=QUESTION_MS)
+        )
+        if _normalize_utc(now) < _normalize_utc(deadline_at):
+            return None
     q = await session.get(Question, rnd.current_question_id)
     if q is None:
         raise EngineError("not_found", "Question missing", 404)
-    now = clock.now()
     assert rnd.live_started_at is not None
     close_elapsed = _elapsed_ms(rnd.live_started_at, now)
 
@@ -748,8 +761,13 @@ async def try_autoclose(session: AsyncSession, clock: Clock | None = None) -> bo
             return False
     except Exception:
         pass
-    await close_question(session, actor="system:autoclose", clock=clock)
-    return True
+    closed = await close_question(
+        session,
+        actor="system:autoclose",
+        clock=clock,
+        require_deadline=True,
+    )
+    return closed is not None
 
 
 def team_public_view(team: Team) -> dict[str, Any]:

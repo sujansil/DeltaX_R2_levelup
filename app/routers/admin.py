@@ -208,11 +208,30 @@ async def list_teams(session: AsyncSession = Depends(get_session), _: Principal 
     return [{"id": str(t.id), "name": t.name, "score": t.score, "swap_available": t.swap_available} for t in teams]
 
 
-def _session_is_active(row: AuthSession, now: datetime) -> bool:
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    return row.revoked_at is None and expires_at > now
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _session_activity(row: AuthSession, now: datetime) -> tuple[str, float, bool]:
+    now = _utc(now)
+    age_seconds = max(0.0, (now - _utc(row.last_seen_at)).total_seconds())
+    expired = _utc(row.expires_at) <= now
+    structurally_valid = row.team_id is not None and row.slot is not None
+    valid = row.revoked_at is None and not expired and structurally_valid
+
+    if row.revoked_at is not None:
+        status = "revoked"
+    elif expired:
+        status = "expired"
+    elif age_seconds <= 90:
+        status = "active"
+    elif age_seconds <= 180:
+        status = "stale"
+    else:
+        status = "inactive"
+    return status, round(age_seconds, 3), valid
 
 
 @router.get("/teams/{team_id}/sessions")
@@ -231,7 +250,13 @@ async def list_team_sessions(
         )
     ).scalars().all()
     now = datetime.now(timezone.utc)
-    controller_sid = await get_controller(str(team_id))
+    controller_available = True
+    try:
+        controller_sid = await get_controller(str(team_id))
+    except Exception:
+        controller_available = False
+        controller_sid = None
+    activity = {row.id: _session_activity(row, now) for row in rows}
     payload = [
         {
             "session_id": str(row.id),
@@ -241,14 +266,26 @@ async def list_team_sessions(
             "last_seen": row.last_seen_at.isoformat(),
             "expires_at": row.expires_at.isoformat(),
             "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
-            "active": _session_is_active(row, now),
-            "is_controller": controller_sid == str(row.id),
+            "status": activity[row.id][0],
+            "last_seen_age_sec": activity[row.id][1],
+            "valid": activity[row.id][2],
+            # Compatibility: historically `active` meant authentication-valid.
+            "active": activity[row.id][2],
+            "is_controller": (
+                controller_sid == str(row.id) if controller_available else None
+            ),
         }
         for row in rows
     ]
+    valid_session_count = sum(1 for status in activity.values() if status[2])
+    recent_session_count = sum(1 for status in activity.values() if status[0] == "active")
     return {
         "team_id": str(team_id),
-        "active_count": sum(1 for row in rows if _session_is_active(row, now)),
+        # Compatibility for existing clients; this remains the valid-session count.
+        "active_count": valid_session_count,
+        "valid_session_count": valid_session_count,
+        "recent_session_count": recent_session_count,
+        "controller_available": controller_available,
         "controller_session_id": controller_sid,
         "sessions": payload,
     }

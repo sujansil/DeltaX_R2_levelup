@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import jwt
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocketDisconnect
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -166,6 +166,18 @@ class ConnectedWebSocket(RejectedWebSocket):
         return "heartbeat"
 
 
+class OneMessageWebSocket(ConnectedWebSocket):
+    def __init__(self, token):
+        super().__init__(token)
+        self.receives = 0
+
+    async def receive_text(self):
+        self.receives += 1
+        if self.receives == 1:
+            return "heartbeat"
+        raise WebSocketDisconnect()
+
+
 async def test_revoked_websocket_token_is_rejected(auth_ctx, monkeypatch):
     async with auth_ctx["maker"]() as session:
         logged_in = await login_team(session)
@@ -205,6 +217,25 @@ async def test_connected_websocket_revalidates_and_closes_after_revocation(
     assert websocket.accepted is True
     assert websocket.closed_with == 4401
     assert validations == 2
+
+
+async def test_websocket_revalidation_uses_existing_last_seen_throttle(
+    auth_ctx, monkeypatch
+):
+    async with auth_ctx["maker"]() as session:
+        logged_in = await login_team(session)
+        row = await session.get(AuthSession, UUID(logged_in["session_id"]))
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+        expected = row.last_seen_at
+        await session.commit()
+
+    monkeypatch.setattr(ws_routes, "SessionLocal", auth_ctx["maker"])
+    websocket = OneMessageWebSocket(logged_in["access_token"])
+    await ws_routes.websocket_endpoint(websocket)
+
+    async with auth_ctx["maker"]() as verify:
+        stored = await verify.get(AuthSession, UUID(logged_in["session_id"]))
+        assert stored.last_seen_at == expected.replace(tzinfo=None)
 
 
 async def test_copied_token_is_the_same_session_not_a_new_login(auth_ctx):
@@ -376,13 +407,166 @@ async def test_admin_inventory_includes_metadata_and_controller(auth_ctx, monkey
 
     row = result["sessions"][0]
     assert result["active_count"] == 1
+    assert result["valid_session_count"] == 1
+    assert result["recent_session_count"] == 1
+    assert result["controller_available"] is True
     assert result["controller_session_id"] == logged_in["session_id"]
     assert row["session_id"] == logged_in["session_id"]
     assert row["device_label"] == "Stage laptop"
     assert row["user_agent"] == "pytest-client"
     assert row["active"] is True
+    assert row["valid"] is True
+    assert row["status"] == "active"
+    assert row["last_seen_age_sec"] <= 1
     assert row["is_controller"] is True
     assert row["login_time"] and row["last_seen"]
+
+
+@pytest.mark.parametrize(
+    ("age_seconds", "revoked", "expired", "expected_status", "expected_valid"),
+    [
+        (89, False, False, "active", True),
+        (90, False, False, "active", True),
+        (91, False, False, "stale", True),
+        (180, False, False, "stale", True),
+        (181, False, False, "inactive", True),
+        (1, True, False, "revoked", False),
+        (1, False, True, "expired", False),
+        (1, True, True, "revoked", False),
+    ],
+)
+def test_session_activity_status_boundaries(
+    age_seconds, revoked, expired, expected_status, expected_valid
+):
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    row = AuthSession(
+        id=uuid4(),
+        user_id=uuid4(),
+        team_id=uuid4(),
+        slot=1,
+        created_at=now - timedelta(hours=1),
+        last_seen_at=now - timedelta(seconds=age_seconds),
+        expires_at=now - timedelta(seconds=1) if expired else now + timedelta(hours=1),
+        revoked_at=now if revoked else None,
+    )
+
+    status, actual_age, valid = admin_routes._session_activity(row, now)
+
+    assert status == expected_status
+    assert actual_age == age_seconds
+    assert valid is expected_valid
+
+
+def test_team_session_without_slot_is_structurally_invalid():
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    row = AuthSession(
+        id=uuid4(), user_id=uuid4(), team_id=uuid4(), slot=None,
+        created_at=now, last_seen_at=now, expires_at=now + timedelta(hours=1),
+    )
+
+    status, _, valid = admin_routes._session_activity(row, now)
+
+    assert status == "active"
+    assert valid is False
+
+
+@pytest.mark.parametrize(
+    ("age_seconds", "expected_status"),
+    [(10, "active"), (120, "stale"), (240, "inactive")],
+)
+async def test_controller_is_separate_from_activity_status(
+    auth_ctx, monkeypatch, age_seconds, expected_status
+):
+    async with auth_ctx["maker"]() as session:
+        logged_in = await login_team(session)
+        row = await session.get(AuthSession, UUID(logged_in["session_id"]))
+        row.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+        await session.commit()
+
+        async def current_controller(_team_id):
+            return logged_in["session_id"]
+
+        monkeypatch.setattr(admin_routes, "get_controller", current_controller)
+        result = await admin_routes.list_team_sessions(
+            auth_ctx["team_id"], session, admin_principal()
+        )
+
+    assert result["sessions"][0]["status"] == expected_status
+    assert result["sessions"][0]["is_controller"] is True
+
+
+async def test_missing_controller_key_is_known_not_controller(auth_ctx, monkeypatch):
+    async with auth_ctx["maker"]() as session:
+        await login_team(session)
+
+        async def no_controller(_team_id):
+            return None
+
+        monkeypatch.setattr(admin_routes, "get_controller", no_controller)
+        result = await admin_routes.list_team_sessions(
+            auth_ctx["team_id"], session, admin_principal()
+        )
+
+    assert result["controller_available"] is True
+    assert result["controller_session_id"] is None
+    assert result["sessions"][0]["is_controller"] is False
+
+
+async def test_redis_failure_preserves_session_inventory_and_marks_controller_unknown(
+    auth_ctx, monkeypatch
+):
+    async with auth_ctx["maker"]() as session:
+        await login_team(session)
+
+        async def redis_unavailable(_team_id):
+            raise ConnectionError("redis unavailable")
+
+        monkeypatch.setattr(admin_routes, "get_controller", redis_unavailable)
+        result = await admin_routes.list_team_sessions(
+            auth_ctx["team_id"], session, admin_principal()
+        )
+
+    assert result["controller_available"] is False
+    assert result["controller_session_id"] is None
+    assert result["valid_session_count"] == 1
+    assert result["recent_session_count"] == 1
+    assert result["sessions"][0]["status"] == "active"
+    assert result["sessions"][0]["is_controller"] is None
+
+
+async def test_session_counts_and_classification_survive_new_db_session(
+    auth_ctx, monkeypatch
+):
+    async with auth_ctx["maker"]() as setup:
+        active = await login_team(setup, device_label="active")
+        stale = await login_team(setup, device_label="stale")
+        inactive = await login_team(setup, device_label="inactive")
+        revoked = await login_team(setup, device_label="revoked")
+        now = datetime.now(timezone.utc)
+        (await setup.get(AuthSession, UUID(active["session_id"]))).last_seen_at = now - timedelta(seconds=30)
+        (await setup.get(AuthSession, UUID(stale["session_id"]))).last_seen_at = now - timedelta(seconds=120)
+        (await setup.get(AuthSession, UUID(inactive["session_id"]))).last_seen_at = now - timedelta(seconds=240)
+        revoked_row = await setup.get(AuthSession, UUID(revoked["session_id"]))
+        revoked_row.last_seen_at = now
+        revoked_row.revoked_at = now
+        revoked_row.slot = None
+        await setup.commit()
+
+    async def no_controller(_team_id):
+        return None
+
+    monkeypatch.setattr(admin_routes, "get_controller", no_controller)
+    async with auth_ctx["maker"]() as restarted_session:
+        result = await admin_routes.list_team_sessions(
+            auth_ctx["team_id"], restarted_session, admin_principal()
+        )
+
+    statuses = {row["device_label"]: row["status"] for row in result["sessions"]}
+    assert statuses == {
+        "active": "active", "stale": "stale", "inactive": "inactive", "revoked": "revoked"
+    }
+    assert result["valid_session_count"] == 3
+    assert result["recent_session_count"] == 1
 
 
 async def test_login_token_sid_matches_persisted_session(auth_ctx):

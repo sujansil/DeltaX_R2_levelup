@@ -13,7 +13,7 @@
   }
 
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let renderer;
+  let renderer;z
   let frameId = 0;
 
   try {

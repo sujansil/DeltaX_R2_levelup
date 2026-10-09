@@ -184,8 +184,11 @@
     target.innerHTML = sortedTeams.map((team) => {
       const row = matrixByTeam.get(team.id) || {};
       const sessions = sessionCache.get(team.id);
-      const activeCount = sessions?.active_count ?? "—";
+      const validCount = sessions?.valid_session_count ?? sessions?.active_count ?? "—";
+      const recentCount = sessions?.recent_session_count ?? "—";
+      const controllerAvailable = sessions?.controller_available !== false;
       const ctrl = sessions?.controller_session_id ? true : false;
+      const controllerMark = controllerAvailable ? (ctrl ? "●" : "○") : "?";
       const cards = [row.bounty ? "B" : "-", row.freeze ? "F" : "-", row.peek ? "P" : "-", row.swap_used ? "S" : "-"].join(" ");
       let result = "PENDING";
       let resultClass = "result-pending";
@@ -200,8 +203,8 @@
           <span class="team-name">${escapeHtml(team.name)}</span>
           <span class="score">${formatNumber(team.score)}</span>
           <span class="cell-center team-time" data-deadline="${escapeHtml(row.deadline_at || "")}" data-locked="${row.locked ? "1" : "0"}" data-graded="${row.graded ? "1" : "0"}" data-freeze="${row.freeze ? "1" : "0"}">${formatTeamTime(row)}</span>
-          <span class="cell-center">${activeCount}/4</span>
-          <span class="cell-center"><i class="flag ${ctrl ? "on ctrl" : ""}">${ctrl ? "●" : "○"}</i></span>
+          <span class="cell-center" title="recent / valid sessions">${recentCount}/${validCount}</span>
+          <span class="cell-center"><i class="flag ${ctrl ? "on ctrl" : ""}" title="${controllerAvailable ? "controller lease" : "controller state unavailable"}">${controllerMark}</i></span>
           <span class="cell-center"><i class="flag ${row.locked ? "on" : ""}">${row.locked ? "YES" : "NO"}</i></span>
           <span>${escapeHtml(cards)}</span>
           <span class="${resultClass}">${escapeHtml(result)}</span>
@@ -251,7 +254,9 @@
     const team = teams.find((t) => t.id === selectedTeamId);
     const data = selectedSessions || (selectedTeamId ? sessionCache.get(selectedTeamId) : null);
     $("session-team-copy").textContent = team ? `${team.name} // authenticated device registry` : "Select a team from the matrix.";
-    $("session-count-label").textContent = `${data?.active_count ?? 0} / 4 active`;
+    const validCount = data?.valid_session_count ?? data?.active_count ?? 0;
+    const recentCount = data?.recent_session_count ?? 0;
+    $("session-count-label").textContent = `${recentCount} recent · ${validCount} / 4 valid`;
     $("release-controller-button").disabled = !team || !data?.controller_session_id;
     $("revoke-all-button").disabled = !team || !data?.active_count;
 
@@ -261,11 +266,17 @@
       return;
     }
 
-    target.innerHTML = data.sessions.map((s, i) => `
-      <div class="session-card ${s.active ? "active" : ""} ${s.is_controller ? "controller" : ""}">
+    target.innerHTML = data.sessions.map((s, i) => {
+      const status = String(s.status || (s.active ? "active" : "inactive")).toUpperCase();
+      let controllerLabel = "";
+      if (data.controller_available === false) controllerLabel = " · CONTROLLER UNKNOWN";
+      else if (s.is_controller && (s.status === "revoked" || s.status === "expired")) controllerLabel = " · CONTROLLER LEASE STALE";
+      else if (s.is_controller) controllerLabel = " · CONTROLLER";
+      return `
+      <div class="session-card ${s.status === "active" ? "active" : ""} ${s.is_controller ? "controller" : ""}">
         <div class="session-head">
           <b>${escapeHtml(s.device_label || `DEVICE ${i + 1}`)}</b>
-          <span>${s.is_controller ? "CONTROLLER" : s.active ? "ACTIVE" : "INACTIVE"}</span>
+          <span>${escapeHtml(status + controllerLabel)}</span>
         </div>
         <div class="session-meta">
           <span>SID ${escapeHtml(shorten(s.session_id, 18))}</span>
@@ -273,15 +284,16 @@
           <span>LAST ${formatDateTime(s.last_seen)}</span>
           ${s.user_agent ? `<span title="${escapeHtml(s.user_agent)}">UA ${escapeHtml(shorten(s.user_agent, 45))}</span>` : ""}
         </div>
-        ${s.active ? `<div class="session-controls"><button class="mini" data-revoke-session="${s.session_id}">REVOKE</button></div>` : ""}
-      </div>`).join("");
+        ${s.valid ? `<div class="session-controls"><button class="mini" data-revoke-session="${s.session_id}">REVOKE</button></div>` : ""}
+      </div>`;
+    }).join("");
 
     target.querySelectorAll("[data-revoke-session]").forEach((btn) => btn.addEventListener("click", () => revokeSession(btn.dataset.revokeSession)));
   }
 
   function renderHealthSummary() {
     const values = [...sessionCache.values()];
-    const active = values.reduce((sum, item) => sum + Number(item.active_count || 0), 0);
+    const active = values.reduce((sum, item) => sum + Number(item.valid_session_count ?? item.active_count ?? 0), 0);
     const controllers = values.reduce((sum, item) => sum + (item.controller_session_id ? 1 : 0), 0);
     $("health-sessions").textContent = String(active);
     $("health-controllers").textContent = String(controllers);
