@@ -9,6 +9,7 @@
   let lastPublicationAt = null;
   let previousPublication = { leaderboard: [], card_usage: [] };
   let questionSignature = "";
+  let currentQuestion = null;
   let consecutiveFailures = 0;
   let clockOffset = 0;
 
@@ -48,6 +49,7 @@
     const nextQuestionSignature = JSON.stringify([payload.phase, payload.paused_at, payload.question]);
     if (nextQuestionSignature !== questionSignature) {
       renderQuestion(payload.phase, payload.question, !!payload.paused, payload.paused_at);
+      currentQuestion = payload.question || null;
       questionSignature = nextQuestionSignature;
     }
 
@@ -57,6 +59,7 @@
       previousPublication = clonePublication(publication);
       lastPublicationAt = publication.published_at || null;
     }
+    renderSolution(publication.solution, currentQuestion, publicationChanged);
     initialized = true;
   }
 
@@ -106,11 +109,12 @@
         <h1 id="question-heading" class="question-prompt">${escapeHtml(question.prompt || "")}</h1>
         ${question.media_url ? `<img class="question-media" src="${escapeHtml(question.media_url)}" alt="Question media" />` : ""}
         <div class="options-list">${options.map((option, index) => `
-          <div class="option-row">
+          <div class="option-row" data-option-id="${escapeHtml(option.id)}">
             <span class="option-key">${optionLabel(index)}</span>
             <span class="option-text">${escapeHtml(option.text || "")}</span>
             ${option.media_url ? `<img class="option-media" src="${escapeHtml(option.media_url)}" alt="Option ${optionLabel(index)} media" />` : ""}
           </div>`).join("")}</div>
+        <aside id="published-hint" class="published-hint" hidden></aside>
       </article>`;
     target.querySelectorAll("img").forEach((image) => {
       image.addEventListener("error", () => { image.hidden = true; }, { once: true });
@@ -127,6 +131,51 @@
       : "—";
     renderLeaderboard(next.leaderboard || [], previous.leaderboard || [], animate);
     renderCards(next.card_usage || [], previous.card_usage || [], animate);
+  }
+
+  function renderSolution(solution, question, animate) {
+    const matching = solution && question
+      && Number(solution.question_index) === Number(question.index);
+    const optionRows = [...document.querySelectorAll(".option-row")];
+    const displayedInline = matching && optionRows.length > 0;
+    const correct = new Set((displayedInline ? solution.correct_option_ids : []).map(String));
+    optionRows.forEach((row) => {
+      const isCorrect = correct.has(String(row.dataset.optionId));
+      row.classList.toggle("correct-option", isCorrect);
+      row.classList.toggle("solution-reveal", isCorrect && animate && !reducedMotion.matches);
+      const marker = row.querySelector(".correct-marker");
+      if (isCorrect && !marker) {
+        const nextMarker = document.createElement("span");
+        nextMarker.className = "correct-marker";
+        nextMarker.textContent = "✓ CORRECT";
+        row.appendChild(nextMarker);
+      } else if (!isCorrect) {
+        marker?.remove();
+      }
+    });
+
+    const hint = $("published-hint");
+    if (hint) {
+      const hintText = matching ? String(solution.hint || "").trim() : "";
+      hint.hidden = !hintText;
+      hint.classList.toggle("solution-reveal", !!hintText && animate && !reducedMotion.matches);
+      hint.innerHTML = hintText
+        ? `<span>HINT / INSIGHT</span><p>${escapeHtml(hintText)}</p>`
+        : "";
+    }
+
+    const previous = $("previous-solution");
+    const needsPublicationContext = solution && !displayedInline;
+    previous.hidden = !needsPublicationContext;
+    previous.innerHTML = needsPublicationContext ? previousSolutionMarkup(solution) : "";
+  }
+
+  function previousSolutionMarkup(solution) {
+    const ids = (solution.correct_option_ids || []).map(escapeHtml).join(", ") || "—";
+    const hint = String(solution.hint || "").trim();
+    return `<span>LAST SOLUTION · Q${escapeHtml(solution.question_index)}</span>
+      <strong>Correct option${(solution.correct_option_ids || []).length === 1 ? "" : "s"}: ${ids}</strong>
+      ${hint ? `<p><b>HINT / INSIGHT</b> ${escapeHtml(hint)}</p>` : ""}`;
   }
 
   function renderLeaderboard(rows, previousRows, animate) {
@@ -226,6 +275,20 @@
     window.setTimeout(() => badge.remove(), 1500);
   }
 
+  function compactSwapTeam(name) {
+  if (!name) return "?";
+
+  const value = String(name).trim();
+
+  const match = value.match(/^Team\s+(.+)$/i);
+
+  if (match) {
+    return match[1];
+  }
+
+  return value;
+}
+
   function renderCards(rows, previousRows, animate) {
     const target = $("card-board");
     if (!rows.length) {
@@ -244,7 +307,12 @@
         ${cards.map(([field, short]) => {
           const used = !!team[field];
           const revealed = animate && used && before && !before[field] && !reducedMotion.matches;
-          return `<span class="card-state ${used ? "used" : ""} ${revealed ? "just-revealed" : ""}" data-short="${short}">${used ? "✓" : "—"}</span>`;
+          let displayValue = used ? "✓" : "—";
+
+          if(field == "swap_used" && used) {
+            displayValue = compactSwapTeam(team.swap_target_team_name);
+          }
+          return `<span class="card-state ${used ? "used" : ""} ${revealed ? "just-revealed" : ""}" data-short="${short}">${escapeHtml(displayValue)}</span>`;
         }).join("")}
       </div>`;
     }).join("");
@@ -334,7 +402,7 @@
     $("server-clock").textContent = new Date(Date.now() + clockOffset).toLocaleTimeString([], { hour12: false });
   }
   function emptyPublication() {
-    return { published_at: null, phase: null, question_index: null, leaderboard: [], card_usage: [] };
+    return { published_at: null, phase: null, question_index: null, leaderboard: [], card_usage: [], solution: null };
   }
   function clonePublication(value) {
     return JSON.parse(JSON.stringify(value || emptyPublication()));
@@ -360,5 +428,7 @@
     rowsByTeam,
     publicationChanged: (initializedState, previousAt, nextAt) => initializedState && previousAt !== nextAt,
     cardWasRevealed: (before, after, field) => !!after?.[field] && !before?.[field],
+    solutionMatchesQuestion: (solution, question) => !!solution && !!question
+      && Number(solution.question_index) === Number(question.index),
   };
 })();

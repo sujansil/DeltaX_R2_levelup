@@ -925,6 +925,7 @@ async def export_event(
                 "question_index": durable_published_leaderboard.question_index,
                 "rows": durable_published_leaderboard.rows,
                 "card_usage_rows": durable_published_leaderboard.card_usage_rows,
+                "published_solution": durable_published_leaderboard.published_solution,
             }
             if durable_published_leaderboard
             else None
@@ -984,6 +985,24 @@ async def reveal_cards(
     return {"reveal_cards": rnd.reveal_cards}
 
 
+def _public_solution(question: Question | None) -> dict[str, Any] | None:
+    """Whitelist only audience-safe MCQ fields for durable publication."""
+    if question is None or question.qtype not in {"mcq_single", "mcq_multi"}:
+        return None
+    answer_key = question.answer_key if isinstance(question.answer_key, dict) else {}
+    if question.qtype == "mcq_single":
+        raw_ids = [answer_key.get("option_id")]
+    else:
+        value = answer_key.get("option_ids")
+        raw_ids = value if isinstance(value, list) else []
+    return {
+        "question_index": question.index,
+        "type": question.qtype,
+        "correct_option_ids": [str(value) for value in raw_ids if value is not None],
+        "hint": question.hint if question.hint else None,
+    }
+
+
 @router.post("/round/publish-leaderboard")
 async def api_publish_leaderboard(
     session: AsyncSession = Depends(get_session),
@@ -993,6 +1012,7 @@ async def api_publish_leaderboard(
 
     rnd = await get_round(session, for_update=True)
     question = await session.get(Question, rnd.current_question_id) if rnd.current_question_id else None
+    published_solution = _public_solution(question)
     live_board = await leaderboard(session)
     card_usage_rows = []
     if rnd.current_question_id is not None:
@@ -1004,6 +1024,25 @@ async def api_publish_leaderboard(
             )
         ).scalars().all()
         cards_by_team = {str(row.team_id): row for row in question_rows}
+
+        swap_events = (
+            await session.execute(
+                select(SwapEvent).where(
+                    SwapEvent.question_id == rnd.current_question_id
+                )
+            )
+        ).scalars().all()
+
+        swap_target_by_source = {
+            str(event.source_team_id): str(event.target_team_id)
+            for event in swap_events
+        }
+
+        team_name_by_id = {
+            team["id"]: team["name"]
+            for team in live_board
+        }
+
         card_usage_rows = [
             {
                 "team_id": team["id"],
@@ -1012,6 +1051,8 @@ async def api_publish_leaderboard(
                 "freeze_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].freeze),
                 "peek_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].peek),
                 "swap_used": bool(cards_by_team.get(team["id"]) and cards_by_team[team["id"]].swap_used),
+                "swap_target_team_id": swap_target_by_source.get(team["id"]),
+                "swap_target_team_name": team_name_by_id.get(swap_target_by_source.get(team["id"])),
             }
             for team in live_board
         ]
@@ -1028,6 +1069,7 @@ async def api_publish_leaderboard(
     snapshot.question_index = question.index if question else None
     snapshot.rows = live_board
     snapshot.card_usage_rows = card_usage_rows
+    snapshot.published_solution = published_solution
     await audit(
         session,
         actor=admin.username,
@@ -1041,6 +1083,7 @@ async def api_publish_leaderboard(
             "question_index": question.index if question else None,
             "rows": live_board,
             "card_usage_rows": card_usage_rows,
+            "published_solution": published_solution,
             "actor": admin.username,
         },
     )

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.db import get_session
 from app.deps import Principal
 from app.engine import get_round, restart_round
-from app.models import Base, PublishedLeaderboard, Question, Team, TeamQuestion
+from app.models import Base, PublishedLeaderboard, Question, Team, TeamQuestion, SwapEvent
 from app.routers import admin as admin_routes
 from app.routers import public as public_routes
 
@@ -60,6 +60,12 @@ async def audience_ctx(monkeypatch):
                 freeze_elapsed_ms=1000, points_delta=999, graded=True,
                 is_correct=True, kingslayer_eligible=True,
             ),
+            SwapEvent(
+                question_id=question.id,
+                source_team_id=beta.id,
+                target_team_id=alpha.id,
+                applied=False,
+            )
         ])
         await session.commit()
 
@@ -150,7 +156,7 @@ async def test_idle_has_no_question_and_no_publication_has_empty_boards(audience
     assert payload["question"] is None
     assert payload["publication"] == {
         "published_at": None, "phase": None, "question_index": None,
-        "leaderboard": [], "card_usage": [],
+        "leaderboard": [], "card_usage": [], "solution": None,
     }
 
 
@@ -159,6 +165,12 @@ async def test_publish_freezes_ordered_scores_and_card_usage_until_republish(aud
         await admin_routes.api_publish_leaderboard(session=session, admin=admin_principal())
 
     first = (await audience_response(audience_ctx)).json()["publication"]
+    assert first["solution"] == {
+        "question_index": 4,
+        "type": "mcq_single",
+        "correct_option_ids": ["safe"],
+        "hint": "Private hint",
+    }
     assert [row["team_name"] for row in first["card_usage"]] == ["Beta", "Alpha"]
     assert first["leaderboard"] == [
         {"id": str(audience_ctx["beta"].id), "name": "Beta", "score": 200, "rank": 1},
@@ -166,14 +178,22 @@ async def test_publish_freezes_ordered_scores_and_card_usage_until_republish(aud
     ]
     assert first["card_usage"] == [
         {
-            "team_id": str(audience_ctx["beta"].id), "team_name": "Beta",
-            "bounty_used": False, "freeze_used": True,
-            "peek_used": False, "swap_used": True,
+            "team_id": str(audience_ctx["beta"].id), 
+            "team_name": "Beta",
+            "bounty_used": False, 
+            "freeze_used": True,
+            "peek_used": False, 
+            "swap_used": True,
+            "swap_target_team_id": str(audience_ctx["alpha"].id),
+            "swap_target_team_name": "Alpha",
         },
         {
-            "team_id": str(audience_ctx["alpha"].id), "team_name": "Alpha",
-            "bounty_used": True, "freeze_used": False,
-            "peek_used": True, "swap_used": False,
+            "team_id": str(audience_ctx["alpha"].id), 
+            "team_name": "Alpha",
+            "bounty_used": True, 
+            "freeze_used": False,
+            "peek_used": True, 
+            "swap_used": False,
         },
     ]
 
@@ -215,6 +235,37 @@ async def test_publish_without_question_has_empty_card_usage(audience_ctx):
         await admin_routes.api_publish_leaderboard(session=session, admin=admin_principal())
         snapshot = await session.get(PublishedLeaderboard, 1)
         assert snapshot.card_usage_rows == []
+        assert snapshot.published_solution is None
+
+
+async def test_later_question_solution_never_leaks_until_republish(audience_ctx):
+    async with audience_ctx["maker"]() as session:
+        await admin_routes.api_publish_leaderboard(session=session, admin=admin_principal())
+        later = Question(
+            id=uuid4(), index=5, topic="Next", prompt="Still private?",
+            qtype="mcq_multi", options=[{"id": "x", "text": "X"}],
+            answer_key={"option_ids": ["x", "y"], "internal": "do not publish"},
+            hint="Next secret hint",
+        )
+        session.add(later)
+        await session.flush()
+        rnd = await get_round(session)
+        rnd.current_question_id = later.id
+        await session.commit()
+
+    stale = (await audience_response(audience_ctx)).json()
+    assert stale["question"]["index"] == 5
+    assert stale["publication"]["solution"]["question_index"] == 4
+    assert "Next secret hint" not in json.dumps(stale)
+
+    async with audience_ctx["maker"]() as session:
+        await admin_routes.api_publish_leaderboard(session=session, admin=admin_principal())
+    replaced = (await audience_response(audience_ctx)).json()["publication"]["solution"]
+    assert replaced == {
+        "question_index": 5, "type": "mcq_multi",
+        "correct_option_ids": ["x", "y"], "hint": "Next secret hint",
+    }
+    assert "internal" not in json.dumps(replaced)
 
 
 async def test_audience_survives_new_session_redis_failure_and_restart_clear(

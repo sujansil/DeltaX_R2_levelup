@@ -103,6 +103,12 @@ async def export_ctx(tmp_path, monkeypatch):
                             "swap_used": True,
                         }
                     ],
+                    published_solution={
+                        "question_index": 8,
+                        "type": "mcq_single",
+                        "correct_option_ids": ["yes"],
+                        "hint": "Inspect PostgreSQL",
+                    },
                 ),
                 TeamQuestion(
                     id=uuid4(),
@@ -280,6 +286,12 @@ async def test_admin_download_contains_complete_safe_snapshot_without_mutation(e
     assert postgres["published_leaderboard"]["published_by"] == "admin-export"
     assert postgres["published_leaderboard"]["rows"][0]["score"] == 4000
     assert postgres["published_leaderboard"]["card_usage_rows"][0]["freeze_used"] is True
+    assert postgres["published_leaderboard"]["published_solution"] == {
+        "question_index": 8,
+        "type": "mcq_single",
+        "correct_option_ids": ["yes"],
+        "hint": "Inspect PostgreSQL",
+    }
     assert postgres["auth_sessions"][1]["device_label"] in {
         "admin laptop", "team tablet"
     }

@@ -120,6 +120,7 @@ class PublishedLeaderboard(Base):
     card_usage_rows: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"
     )
+    published_solution: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class TeamQuestion(Base):

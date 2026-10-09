@@ -39,6 +39,10 @@ def test_audience_script_only_uses_public_api_and_has_publication_gated_animatio
     assert "element.textContent = number(to)" in script
     assert "previousTop - row.getBoundingClientRect().top" in script
     assert "used && before && !before[field]" in script
+    assert "renderSolution(publication.solution, currentQuestion, publicationChanged)" in script
+    assert "Number(solution.question_index) === Number(question.index)" in script
+    assert 'marker.textContent = "✓ CORRECT"' not in script
+    assert 'nextMarker.textContent = "✓ CORRECT"' in script
 
 
 def test_audience_phase_placeholders_reduced_motion_and_responsive_layout_exist():
@@ -58,3 +62,9 @@ def test_audience_phase_placeholders_reduced_motion_and_responsive_layout_exist(
     assert "@media (max-width: 680px)" in css
     assert "overflow-x: hidden" in css
     assert "grid-template-columns: 1fr" in css
+    assert "height: 100dvh" in css
+    assert "grid-template-rows: repeat(8" in css
+    assert ".option-row.correct-option" in css
+    assert ".published-hint" in css
+    assert ".previous-solution" in css
+    assert "solution-reveal" in css

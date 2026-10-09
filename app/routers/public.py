@@ -51,6 +51,7 @@ async def audience(session: AsyncSession = Depends(get_session)):
         "question_index": snapshot.question_index if snapshot else None,
         "leaderboard": list(snapshot.rows) if snapshot else [],
         "card_usage": list(snapshot.card_usage_rows) if snapshot else [],
+        "solution": snapshot.published_solution if snapshot else None,
     }
     return {
         "phase": rnd.phase,

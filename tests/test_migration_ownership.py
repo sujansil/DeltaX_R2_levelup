@@ -20,12 +20,15 @@ def test_migration_chain_has_foundation_and_current_schema_columns():
     pause_revision = (VERSIONS / "20261009_02_add_round_paused_at.py").read_text()
     cards_revision = (VERSIONS / "20261010_01_add_published_card_usage.py").read_text()
     deadline_revision = (VERSIONS / "20261010_02_add_global_deadline.py").read_text()
+    solution_revision = (VERSIONS / "20261010_03_add_published_solution.py").read_text()
 
     assert 'down_revision = "20261007_01"' in auth_revision
     assert '"paused_at"' in pause_revision
     assert '"card_usage_rows"' in cards_revision
     assert '"global_deadline_at"' in deadline_revision
     assert 'down_revision = "20261010_01"' in deadline_revision
+    assert '"published_solution"' in solution_revision
+    assert 'down_revision = "20261010_02"' in solution_revision
 
 
 def test_production_startup_and_seed_do_not_mutate_schema():
