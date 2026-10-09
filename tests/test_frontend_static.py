@@ -85,6 +85,7 @@ def test_admin_frontend_keeps_pause_timers_and_session_semantics_explicit():
 
 def test_login_keeps_relative_auth_and_optional_three_background():
     html = (ROOT / "static" / "login.html").read_text()
+    css = (ROOT / "static" / "login.css").read_text()
     background_js = (ROOT / "static" / "login-background.js").read_text()
     right_field_js = (ROOT / "static" / "login-right-field.js").read_text()
 
@@ -110,6 +111,11 @@ def test_login_keeps_relative_auth_and_optional_three_background():
     assert "updateLorenz(perturbedPositions" in background_js
     assert "createMobius" in background_js
     assert "ambientStructure.rotation.y" in background_js
+    assert 'class="spectator-link" href="/audience"' in html
+    assert "@media (min-width:821px)" in css
+    assert "border-color:transparent; background:transparent; box-shadow:none" not in css
+    assert ".event-copy { min-height:350px; padding-top:85px; padding-bottom:19px; }" in css
+    assert ".login-card { margin-top:22px; transform:translateY(-88px); }" in css
     assert "visualPane.getBoundingClientRect()" in background_js
     assert 'id="right-field-canvas"' in html
     assert "/static/login-right-field.js" in html

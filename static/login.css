@@ -64,7 +64,7 @@ button,input { font:inherit; }
 .login-card { align-self:center; width:100%; padding:31px 32px 25px; border:1px solid rgba(224,228,217,.16); background:var(--panel); box-shadow:0 26px 70px rgba(0,0,0,.35); transform:perspective(1200px) rotateX(var(--card-tilt-x,0deg)) rotateY(var(--card-tilt-y,0deg)); transform-origin:center; }
 .card-meta,.card-footer { display:flex; align-items:center; justify-content:space-between; color:#858981; font:500 8px/1 "DM Mono",monospace; letter-spacing:.16em; }
 .system-state { display:flex; align-items:center; gap:7px; }
-.system-state i { width:5px; height:5px; border-radius:50%; background:#9daf8c; box-shadow:0 0 7px rgba(157,175,140,.45); }
+.system-state i { width:5px; height:5px; border-radius:50%; background:#9daf8c; box-shadow:0 0 7px rgba(157.0575,140,.45); }
 .login-card h2 { margin:42px 0 9px; font-size:27px; font-weight:600; letter-spacing:-.035em; }
 .login-description { margin:0 0 31px; color:var(--muted); font-size:11px; line-height:1.6; }
 .field { margin-bottom:18px; }
@@ -77,8 +77,15 @@ button,input { font:inherit; }
 .submit:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .submit:disabled { cursor:wait; opacity:.68; transform:none; }
 .err { min-height:16px; margin:11px 0 0; color:#d6a49b; font-size:10px; line-height:1.5; }
+.spectator-link { display:flex; align-items:center; justify-content:center; width:100%; min-height:43px; margin-top:8px; border:1px solid rgba(183,197,167,.27); color:#aeb4aa; background:rgba(8,10,9,.28); text-decoration:none; font:500 8px/1 "DM Mono",monospace; letter-spacing:.16em; transition:border-color .2s,color .2s,background .2s; }
+.spectator-link:hover { border-color:rgba(183,197,167,.46); color:#d3d7ce; background:rgba(183,197,167,.045); }
+.spectator-link:focus-visible { outline:2px solid rgba(183,197,167,.72); outline-offset:3px; }
 .card-footer { margin-top:21px; padding-top:18px; border-top:1px solid var(--line); font-size:7px; }
 .page-footer { color:#656962; font:400 8px/1 "DM Mono",monospace; letter-spacing:.17em; }
+
+@media (min-width:821px) {
+  .page-shell { width:calc(100% / 1.0575); min-height:calc(100svh / 1.0575); margin:0 auto; transform:scale(1.0575); transform-origin:top center; }
+}
 
 @media (max-width:1050px) and (min-width:821px) {
   :root { --visual-width:61vw; }
@@ -134,8 +141,9 @@ button,input { font:inherit; }
   .graph-readout { gap:20px; }
   .graph-readout strong { font-size:9px; }
   .trajectory-legend { margin-top:10px; }
-  .login-card { margin-top:22px; }
+  .login-card { margin-top:22px; transform:translateY(-88px); }
   .login-card h2 { font-size:24px; }
+  .spectator-link { min-height:45px; }
 }
 
 @media (prefers-reduced-motion:reduce) {
