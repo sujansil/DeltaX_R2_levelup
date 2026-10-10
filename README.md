@@ -128,26 +128,6 @@ Apply database migrations:
 docker compose run --rm api alembic upgrade head
 ```
 
-## Security note
-
-This repository is suitable for public source review, but operational secrets must remain outside version control.
-
-Do not commit:
-
-```text
-.env
-production credentials
-JWT secrets
-cloud credentials
-private keys
-database dumps
-runtime logs
-virtual environments
-cache files
-```
-
-If a secret is ever committed, removing it from the latest file is not enough; rotate the credential as well.
-
 ## Status
 
 The project is currently in the testing and deployment-validation stage.
@@ -159,7 +139,3 @@ Current focus areas include:
 - backup and restore validation
 - failure recovery testing
 - event-day operational checks
-
-## License
-
-No license is currently specified.

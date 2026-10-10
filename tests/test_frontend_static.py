@@ -54,9 +54,11 @@ def test_admin_frontend_integrates_round_publication_and_recovery_controls():
     assert 'id="publication-last"' in html
     assert 'id="publication-current"' in html
     assert 'id="recovery-export-button"' in html
+    assert 'id="excel-export-button"' in html
     assert 'href="/audience"' in html
     assert 'target="_blank"' in html
     assert 'fetch("/api/v1/admin/export/event"' in js
+    assert 'fetch("/api/v1/admin/export/event.xlsx"' in js
     assert 'api("/api/v1/public/audience")' in js
     assert 'phase !== "live"' in js
     assert 'phase !== "paused"' in js

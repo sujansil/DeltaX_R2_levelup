@@ -44,6 +44,7 @@
     $("close-button").addEventListener("click", closeQuestion);
     $("publish-button").addEventListener("click", publishLeaderboard);
     $("recovery-export-button").addEventListener("click", downloadRecoverySnapshot);
+    $("excel-export-button").addEventListener("click", downloadExcelBackup);
     $("view-question-button").addEventListener("click", () => openQuestionViewer(selectedQuestionId || roundState?.current_question_id));
     $("restart-open").addEventListener("click", () => openModal("restart-modal"));
     $("restart-confirm").addEventListener("click", restartRound);
@@ -506,6 +507,45 @@
     } catch (err) {
       if (err.status === 401) return logout(true);
       showToast(err.message || "Recovery export failed", true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function downloadExcelBackup() {
+    const button = $("excel-export-button");
+    button.disabled = true;
+    try {
+      const currentAuth = auth();
+      const response = await fetch("/api/v1/admin/export/event.xlsx", {
+        headers: { Authorization: `Bearer ${currentAuth.access_token}` },
+      });
+      if (!response.ok) {
+        let message = `Excel export failed (${response.status})`;
+        try {
+          const body = await response.json();
+          message = body?.message || body?.detail?.message || (typeof body?.detail === "string" ? body.detail : message);
+        } catch (_) { /* keep concise status error */ }
+        const error = new Error(message);
+        error.status = response.status;
+        throw error;
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+      const filename = match ? decodeURIComponent(match[1].trim()) : `levelup-backup-${new Date().toISOString().replaceAll(":", "-")}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      showToast("Excel backup downloaded");
+    } catch (err) {
+      if (err.status === 401) return logout(true);
+      showToast(err.message || "Excel export failed", true);
     } finally {
       button.disabled = false;
     }

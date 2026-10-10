@@ -1,8 +1,10 @@
 import json
+from io import BytesIO
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from openpyxl import load_workbook
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
@@ -101,6 +103,8 @@ async def export_ctx(tmp_path, monkeypatch):
                             "freeze_used": True,
                             "peek_used": True,
                             "swap_used": True,
+                            "swap_target_team_id": str(target.id),
+                            "swap_target_team_name": "Beta",
                         }
                     ],
                     published_solution={
@@ -247,6 +251,61 @@ async def download(ctx, token):
             "/api/v1/admin/export/event",
             headers={"Authorization": f"Bearer {token}"},
         )
+
+
+async def download_excel(ctx, token):
+    async with AsyncClient(
+        transport=ASGITransport(app=ctx["app"]), base_url="http://test"
+    ) as client:
+        return await client.get(
+            "/api/v1/admin/export/event.xlsx",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+
+async def test_excel_export_is_admin_only(export_ctx):
+    response = await download_excel(export_ctx, export_ctx["team_token"])
+    assert response.status_code == 403
+
+
+async def test_excel_export_contains_human_readable_postgres_backup(export_ctx):
+    response = await download_excel(export_ctx, export_ctx["admin_token"])
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert response.headers["content-disposition"].endswith('.xlsx"')
+
+    workbook = load_workbook(BytesIO(response.content), data_only=False)
+    assert workbook.sheetnames == [
+        "Overview", "Teams", "Team Questions", "Audit Log", "Sessions",
+        "Published Leaderboard", "Card Usage", "Swap Events",
+    ]
+    teams = list(workbook["Teams"].values)
+    assert teams[0][:3] == ("team_id", "team_name", "current_score")
+    assert {(row[1], row[2]) for row in teams[1:]} == {("Alpha", 4321), ("Beta", 2345)}
+    assert workbook["Audit Log"].max_row == 502
+    assert list(workbook["Published Leaderboard"].values)[1] == (
+        1, str(export_ctx["team"].id), "Alpha", 4000
+    )
+    card_rows = list(workbook["Card Usage"].values)
+    assert card_rows[0][-2:] == ("swap_target_team_id", "swap_target_team_name")
+    assert card_rows[1][-2:] == (str(export_ctx["target"].id), "Beta")
+    swap_rows = list(workbook["Swap Events"].values)
+    assert swap_rows[1][4] == "Alpha"
+    assert swap_rows[1][6] == "Beta"
+    all_text = " ".join(str(cell.value) for sheet in workbook for row in sheet for cell in row)
+    for forbidden in ("password_hash", "admin-password-never-export", "team-password-never-export", "secret_key", "access_token"):
+        assert forbidden not in all_text
+
+
+async def test_excel_export_does_not_depend_on_redis(export_ctx, monkeypatch):
+    async def unavailable(team_id):
+        raise RuntimeError("redis unavailable")
+    monkeypatch.setattr(admin_routes, "get_controller", unavailable)
+    response = await download_excel(export_ctx, export_ctx["admin_token"])
+    assert response.status_code == 200
+    assert load_workbook(BytesIO(response.content)).sheetnames[0] == "Overview"
 
 
 async def test_admin_download_contains_complete_safe_snapshot_without_mutation(export_ctx):

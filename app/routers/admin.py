@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+from io import BytesIO
 from datetime import datetime, timezone
 from fastapi import File, UploadFile
 from typing import Any
@@ -8,6 +9,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +64,47 @@ def _json_default(value: Any) -> str:
     if isinstance(value, UUID):
         return str(value)
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _excel_value(value: Any) -> Any:
+    """Convert database values into safe, readable spreadsheet cells."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (dict, list)):
+        value = json.dumps(value, default=_json_default, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def _add_excel_sheet(workbook: Workbook, title: str, headers: list[str], rows: list[list[Any]]):
+    sheet = workbook.create_sheet(title)
+    sheet.append(headers)
+    for row in rows:
+        sheet.append([_excel_value(value) for value in row])
+    header_fill = PatternFill("solid", fgColor="D9EAF7")
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for index, column in enumerate(sheet.columns, start=1):
+        width = max(len(str(cell.value or "")) for cell in column)
+        sheet.column_dimensions[get_column_letter(index)].width = min(max(width + 2, 10), 60)
+    return sheet
+
+
+def _session_export_status(row: AuthSession, exported_at: datetime) -> str:
+    if row.revoked_at:
+        return "REVOKED"
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return "EXPIRED" if expires_at <= exported_at else "VALID"
 
 
 class TeamIn(BaseModel):
@@ -971,6 +1016,70 @@ async def export_event(
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/export/event.xlsx")
+async def export_event_excel(
+    _: Principal = Depends(require_admin),
+    export_session: AsyncSession = Depends(get_export_session),
+):
+    """Download a human-readable operational backup sourced only from PostgreSQL."""
+    exported_at = datetime.now(timezone.utc)
+    rounds = (await export_session.execute(select(RoundState).order_by(RoundState.id))).scalars().all()
+    teams = (await export_session.execute(select(Team).order_by(Team.name, Team.id))).scalars().all()
+    users = (await export_session.execute(select(User).order_by(User.username, User.id))).scalars().all()
+    questions = (await export_session.execute(select(Question).order_by(Question.index, Question.id))).scalars().all()
+    team_questions = (await export_session.execute(select(TeamQuestion).order_by(TeamQuestion.question_id, TeamQuestion.team_id))).scalars().all()
+    audit_events = (await export_session.execute(select(AuditEvent).order_by(AuditEvent.at, AuditEvent.id))).scalars().all()
+    auth_sessions = (await export_session.execute(select(AuthSession).order_by(AuthSession.created_at, AuthSession.id))).scalars().all()
+    swaps = (await export_session.execute(select(SwapEvent).order_by(SwapEvent.created_at, SwapEvent.id))).scalars().all()
+    published = await export_session.get(PublishedLeaderboard, 1)
+
+    round_state = next((row for row in rounds if row.id == 1), None)
+    teams_by_id = {str(team.id): team for team in teams}
+    users_by_id = {str(user.id): user for user in users}
+    questions_by_id = {str(question.id): question for question in questions}
+    current_question = questions_by_id.get(str(round_state.current_question_id)) if round_state and round_state.current_question_id else None
+
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    overview_rows = [
+        ["export_timestamp_utc", exported_at], ["application", "levelup"],
+        ["round_phase", round_state.phase if round_state else None], ["round_version", round_state.version if round_state else None],
+        ["current_question_id", round_state.current_question_id if round_state else None], ["current_question_index", current_question.index if current_question else None],
+        ["live_started_at", round_state.live_started_at if round_state else None], ["global_deadline_at", round_state.global_deadline_at if round_state else None],
+        ["paused_at", round_state.paused_at if round_state else None], ["team_count", len(teams)], ["user_count", len(users)],
+        ["team_question_count", len(team_questions)], ["audit_event_count", len(audit_events)],
+        ["published_at", published.published_at if published else None], ["published_phase", published.phase if published else None],
+        ["published_question_index", published.question_index if published else None], ["published_round_version", published.round_version if published else None],
+    ]
+    overview = _add_excel_sheet(workbook, "Overview", ["Field", "Value"], overview_rows)
+    overview.auto_filter.ref = None
+    _add_excel_sheet(workbook, "Teams", ["team_id", "team_name", "current_score", "swap_available", "version", "created_at"], [
+        [team.id, team.name, team.score, team.swap_available, team.version, team.created_at] for team in teams
+    ])
+    _add_excel_sheet(workbook, "Team Questions", ["team_id", "team_name", "question_id", "question_index", "answer", "is_correct", "points_delta", "graded", "locked", "locked_elapsed_ms", "freeze_elapsed_ms", "deadline_at", "bounty", "freeze", "peek", "swap_used", "kingslayer_eligible", "admin_override"], [
+        [row.team_id, teams_by_id.get(str(row.team_id)).name if str(row.team_id) in teams_by_id else None, row.question_id, questions_by_id.get(str(row.question_id)).index if str(row.question_id) in questions_by_id else None, row.answer, row.is_correct, row.points_delta, row.graded, row.locked, row.locked_elapsed_ms, row.freeze_elapsed_ms, row.deadline_at, row.bounty, row.freeze, row.peek, row.swap_used, row.kingslayer_eligible, row.admin_override] for row in team_questions
+    ])
+    _add_excel_sheet(workbook, "Audit Log", ["timestamp", "event_type", "actor", "team_id", "team_name", "question_id", "question_index", "metadata"], [
+        [row.at, row.kind, row.actor, row.team_id, teams_by_id.get(str(row.team_id)).name if row.team_id and str(row.team_id) in teams_by_id else None, row.question_id, questions_by_id.get(str(row.question_id)).index if row.question_id and str(row.question_id) in questions_by_id else None, row.payload] for row in audit_events
+    ])
+    _add_excel_sheet(workbook, "Sessions", ["session_id", "team_id", "team_name", "user_id", "username", "slot", "created_at", "last_seen_at", "expires_at", "revoked_at", "status"], [
+        [row.id, row.team_id, teams_by_id.get(str(row.team_id)).name if row.team_id and str(row.team_id) in teams_by_id else None, row.user_id, users_by_id.get(str(row.user_id)).username if str(row.user_id) in users_by_id else None, row.slot, row.created_at, row.last_seen_at, row.expires_at, row.revoked_at, _session_export_status(row, exported_at)] for row in auth_sessions
+    ])
+    _add_excel_sheet(workbook, "Published Leaderboard", ["rank", "team_id", "team_name", "score"], [
+        [row.get("rank"), row.get("team_id", row.get("id")), row.get("team_name", row.get("name")), row.get("score")] for row in (published.rows if published else [])
+    ])
+    _add_excel_sheet(workbook, "Card Usage", ["team_id", "team_name", "bounty_used", "freeze_used", "peek_used", "swap_used", "swap_target_team_id", "swap_target_team_name"], [
+        [row.get("team_id"), row.get("team_name"), row.get("bounty_used"), row.get("freeze_used"), row.get("peek_used"), row.get("swap_used"), row.get("swap_target_team_id"), row.get("swap_target_team_name")] for row in (published.card_usage_rows if published else [])
+    ])
+    _add_excel_sheet(workbook, "Swap Events", ["created_at", "question_id", "question_index", "source_team_id", "source_team_name", "target_team_id", "target_team_name", "applied"], [
+        [row.created_at, row.question_id, questions_by_id.get(str(row.question_id)).index if str(row.question_id) in questions_by_id else None, row.source_team_id, teams_by_id.get(str(row.source_team_id)).name if str(row.source_team_id) in teams_by_id else None, row.target_team_id, teams_by_id.get(str(row.target_team_id)).name if str(row.target_team_id) in teams_by_id else None, row.applied] for row in swaps
+    ])
+    output = BytesIO()
+    workbook.save(output)
+    filename = f"delta_x_round2_backup_{exported_at.strftime('%Y-%m-%d_%H%M')}_UTC.xlsx"
+    return Response(content=output.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.post("/round/reveal-cards/{on}")
