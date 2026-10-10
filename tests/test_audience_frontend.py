@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+import subprocess
 
 from httpx import ASGITransport, AsyncClient
 
@@ -68,3 +70,68 @@ def test_audience_phase_placeholders_reduced_motion_and_responsive_layout_exist(
     assert ".published-hint" in css
     assert ".previous-solution" in css
     assert "solution-reveal" in css
+    assert 'id="question-timer"' in html
+    assert "font-variant-numeric: tabular-nums" in css
+
+
+def test_authoritative_timer_math_pause_rounding_and_single_interval():
+    script_path = ROOT / "static" / "audience.js"
+    harness = f"""
+const fs = require('fs');
+global.window = {{
+  matchMedia: () => ({{ matches: true }}),
+  setInterval: () => 1,
+}};
+global.document = {{
+  addEventListener: () => {{}},
+  getElementById: () => ({{}}),
+}};
+eval(fs.readFileSync({json.dumps(str(script_path))}, 'utf8'));
+const t = window.__audienceTest;
+const live = t.makeTimerState({{
+  phase: 'live', server_now: '2026-01-01T00:00:10.000Z',
+  global_deadline_at: '2026-01-01T00:02:39.001Z', paused_at: null,
+}}, Date.parse('2026-01-01T00:00:00.000Z'));
+const paused = t.makeTimerState({{
+  phase: 'paused', server_now: '2026-01-01T01:00:00.000Z',
+  global_deadline_at: '2026-01-01T00:02:30.000Z',
+  paused_at: '2026-01-01T00:01:00.000Z',
+}}, Date.parse('2025-12-31T23:00:00.000Z'));
+const resumed = t.makeTimerState({{
+  phase: 'live', server_now: '2026-01-01T00:03:00.000Z',
+  global_deadline_at: '2026-01-01T00:04:30.000Z', paused_at: null,
+}}, Date.parse('2026-01-01T00:03:00.000Z'));
+console.log(JSON.stringify({{
+  offset: live.serverOffsetMs,
+  live: t.remainingTimerMs(live, Date.parse('2026-01-01T00:00:00.000Z')),
+  liveLater: t.remainingTimerMs(live, Date.parse('2026-01-01T00:00:00.001Z')),
+  paused: t.remainingTimerMs(paused, Date.parse('2030-01-01T00:00:00.000Z')),
+  resumed: t.remainingTimerMs(resumed, Date.parse('2026-01-01T00:03:01.000Z')),
+  negative: t.remainingTimerMs(live, Date.parse('2027-01-01T00:00:00.000Z')),
+  idle: t.formatTimer(t.remainingTimerMs(t.makeTimerState({{phase: 'idle'}}, 0), 0)),
+  topic: t.formatTimer(t.remainingTimerMs(t.makeTimerState({{phase: 'topic'}}, 0), 0)),
+  closed: t.formatTimer(t.remainingTimerMs(t.makeTimerState({{phase: 'closed'}}, 0), 0)),
+  ceilA: t.formatTimer(149001), ceilB: t.formatTimer(149000),
+}}));
+"""
+    result = subprocess.run(
+        ["node", "-e", harness], check=True, capture_output=True, text=True
+    )
+    values = json.loads(result.stdout)
+    assert values == {
+        "offset": 10_000,
+        "live": 149_001,
+        "liveLater": 149_000,
+        "paused": 90_000,
+        "resumed": 89_000,
+        "negative": 0,
+        "idle": "--:--",
+        "topic": "--:--",
+        "closed": "00:00",
+        "ceilA": "02:30",
+        "ceilB": "02:29",
+    }
+
+    script = script_path.read_text()
+    assert script.count("timerInterval = window.setInterval") == 1
+    assert "seconds--" not in script

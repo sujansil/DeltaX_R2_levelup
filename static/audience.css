@@ -53,6 +53,11 @@ body[data-phase="paused"] #chaos-canvas { opacity: .11; }
 .standings-section, .cards-section { border-top: 1px solid var(--rule-strong); padding: clamp(15px, 1.5vw, 24px); overflow: hidden; }
 .section-rail { min-height: 42px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--rule); padding: 0 clamp(18px, 2vw, 32px); color: var(--muted); font-size: 8px; }
 #question-context { color: var(--steel); }
+.question-rail-meta { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: clamp(14px, 2vw, 28px); }
+.audience-timer { display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.timer-label { color: var(--muted); }
+#question-timer { min-width: 5ch; color: var(--ink); font: 650 clamp(14px, 1.35vw, 21px)/1 var(--mono); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.timer-status { color: var(--warm); font-size: 7px; letter-spacing: .1em; }
 .question-content { min-height: 0; overflow: auto; padding: clamp(24px, 4vw, 70px); scrollbar-width: thin; }
 .standby-state, .topic-state { min-height: 100%; display: grid; align-content: center; justify-items: start; }
 .standby-state p, .topic-kicker, .question-kicker { margin: 0 0 16px; color: var(--steel); font: 700 9px/1 var(--mono); letter-spacing: .19em; text-transform: uppercase; }
@@ -156,6 +161,11 @@ body[data-phase="paused"] #chaos-canvas { opacity: .11; }
   .question-stage, .standings-section, .cards-section { width: 100%; overflow: hidden; }
   .question-stage { min-height: min(500px, calc(100svh - 105px)); }
   .section-rail { min-height: 36px; padding-inline: 14px; }
+  .question-rail-meta { gap: 10px; }
+  #question-type { display: none; }
+  .audience-timer { gap: 5px; }
+  #question-timer { font-size: 15px; }
+  .timer-status { font-size: 6px; }
   .question-content { padding: 24px 17px 28px; overflow: visible; }
   .standby-state h1, .topic-state h1 { font-size: clamp(34px, 12vw, 48px); }
   .orbit-mark { width: 86px; margin-bottom: 22px; }

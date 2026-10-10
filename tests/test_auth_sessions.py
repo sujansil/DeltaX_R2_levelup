@@ -112,6 +112,28 @@ async def test_revoking_one_session_allows_a_replacement_login(auth_ctx):
         assert await active_count(session, auth_ctx["team_id"]) == 4
 
 
+async def test_expired_session_slot_allows_a_replacement_login(auth_ctx):
+    async with auth_ctx["maker"]() as session:
+        logins = [await login_team(session) for _ in range(4)]
+        expired = await session.get(AuthSession, UUID(logins[1]["session_id"]))
+        expired.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+        replacement = await login_team(session, device_label="expired-replacement")
+        stored = await session.get(AuthSession, UUID(replacement["session_id"]))
+        assert stored.slot == 2
+        assert expired.slot is None
+
+
+async def test_each_team_has_independent_four_session_capacity(auth_ctx):
+    async with auth_ctx["maker"]() as session:
+        alpha = [await login_team(session, username="alpha") for _ in range(4)]
+        beta = [await login_team(session, username="beta") for _ in range(4)]
+        assert len(alpha) == len(beta) == 4
+        assert await active_count(session, auth_ctx["team_id"]) == 4
+        assert await active_count(session, auth_ctx["other_team_id"]) == 4
+
+
 async def test_revoke_all_invalidates_every_existing_token(auth_ctx):
     async with auth_ctx["maker"]() as session:
         logins = [await login_team(session) for _ in range(4)]
@@ -334,6 +356,18 @@ async def test_expired_jwt_still_fails_normally(auth_ctx):
             await principal_for(session, expired_token)
     assert expired.value.status_code == 401
     assert expired.value.detail == "Invalid token"
+
+
+async def test_unexpired_jwt_with_expired_database_session_is_rejected(auth_ctx):
+    async with auth_ctx["maker"]() as session:
+        logged_in = await login_team(session)
+        row = await session.get(AuthSession, UUID(logged_in["session_id"]))
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+        with pytest.raises(HTTPException) as rejected:
+            await principal_for(session, logged_in["access_token"])
+    assert rejected.value.status_code == 401
+    assert rejected.value.detail == "Session inactive"
 
 
 async def test_logout_revokes_the_current_session(auth_ctx):

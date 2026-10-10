@@ -3,6 +3,7 @@
 
   const ENDPOINT = "/api/v1/public/audience";
   const POLL_MS = 3000;
+  const TIMER_RENDER_MS = 200;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const scoreAnimations = new Map();
   let initialized = false;
@@ -12,6 +13,8 @@
   let currentQuestion = null;
   let consecutiveFailures = 0;
   let clockOffset = 0;
+  let timerInterval = null;
+  let timerState = makeTimerState({ phase: "idle" }, Date.now());
 
   const $ = (id) => document.getElementById(id);
   const number = (value) => new Intl.NumberFormat().format(Number(value) || 0);
@@ -23,6 +26,9 @@
     fetchAudience();
     window.setInterval(fetchAudience, POLL_MS);
     window.setInterval(renderClock, 1000);
+    if (timerInterval === null) {
+      timerInterval = window.setInterval(renderQuestionTimer, TIMER_RENDER_MS);
+    }
   });
 
   async function fetchAudience() {
@@ -43,7 +49,9 @@
   function applyPayload(payload) {
     const publication = payload.publication || emptyPublication();
     if (payload.server_now) clockOffset = Date.parse(payload.server_now) - Date.now();
+    timerState = makeTimerState(payload, Date.now());
     renderClock();
+    renderQuestionTimer();
     renderPhase(payload);
 
     const nextQuestionSignature = JSON.stringify([payload.phase, payload.paused_at, payload.question]);
@@ -401,6 +409,40 @@
   function renderClock() {
     $("server-clock").textContent = new Date(Date.now() + clockOffset).toLocaleTimeString([], { hour12: false });
   }
+  function makeTimerState(payload, clientNowMs) {
+    const serverNowMs = Date.parse(payload.server_now);
+    return {
+      deadlineMs: parseTimestamp(payload.global_deadline_at),
+      pausedAtMs: parseTimestamp(payload.paused_at),
+      serverOffsetMs: Number.isFinite(serverNowMs) ? serverNowMs - clientNowMs : 0,
+      phase: payload.phase || "idle",
+    };
+  }
+  function parseTimestamp(value) {
+    const parsed = value ? Date.parse(value) : NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  function remainingTimerMs(state, clientNowMs) {
+    if (state.phase === "closed") return 0;
+    if (!state.deadlineMs || !["live", "paused"].includes(state.phase)) return null;
+    const referenceMs = state.phase === "paused"
+      ? state.pausedAtMs
+      : clientNowMs + state.serverOffsetMs;
+    if (!Number.isFinite(referenceMs)) return null;
+    return Math.max(0, state.deadlineMs - referenceMs);
+  }
+  function formatTimer(remainingMs) {
+    if (remainingMs === null) return "--:--";
+    const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  function renderQuestionTimer() {
+    const remainingMs = remainingTimerMs(timerState, Date.now());
+    $("question-timer").textContent = formatTimer(remainingMs);
+    $("timer-status").hidden = timerState.phase !== "paused";
+  }
   function emptyPublication() {
     return { published_at: null, phase: null, question_index: null, leaderboard: [], card_usage: [], solution: null };
   }
@@ -430,5 +472,8 @@
     cardWasRevealed: (before, after, field) => !!after?.[field] && !before?.[field],
     solutionMatchesQuestion: (solution, question) => !!solution && !!question
       && Number(solution.question_index) === Number(question.index),
+    makeTimerState,
+    remainingTimerMs,
+    formatTimer,
   };
 })();

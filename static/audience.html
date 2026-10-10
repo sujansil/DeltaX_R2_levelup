@@ -28,7 +28,14 @@
       <section id="question-section" class="question-stage" aria-labelledby="question-heading">
         <div class="section-rail">
           <span id="question-context">CURRENT QUESTION</span>
-          <span id="question-type">—</span>
+          <div class="question-rail-meta">
+            <span id="question-type">—</span>
+            <span id="audience-timer" class="audience-timer" aria-live="off">
+              <span class="timer-label">TIME</span>
+              <time id="question-timer">--:--</time>
+              <span id="timer-status" class="timer-status" hidden>PAUSED</span>
+            </span>
+          </div>
         </div>
         <div id="question-content" class="question-content" aria-live="polite">
           <div class="standby-state">

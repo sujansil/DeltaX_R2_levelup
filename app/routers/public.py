@@ -12,6 +12,14 @@ from app.models import PublishedLeaderboard, Question
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
 
+def utc_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
+
+
 def audience_question(question: Question, phase: str) -> dict[str, Any]:
     include_body = phase in {"live", "paused", "closed"}
     options = None
@@ -56,8 +64,9 @@ async def audience(session: AsyncSession = Depends(get_session)):
     return {
         "phase": rnd.phase,
         "paused": rnd.phase == "paused",
-        "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
+        "paused_at": utc_iso(rnd.paused_at),
         "server_now": datetime.now(timezone.utc).isoformat(),
+        "global_deadline_at": utc_iso(rnd.global_deadline_at),
         "question": audience_question(question, rnd.phase) if question else None,
         "publication": publication,
     }

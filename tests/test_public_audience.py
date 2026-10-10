@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -108,7 +108,8 @@ async def test_public_endpoint_requires_no_auth_and_ignores_invalid_jwt(audience
     assert without_auth.status_code == 200
     assert invalid_auth.status_code == 200
     assert set(without_auth.json()) == {
-        "phase", "paused", "paused_at", "server_now", "question", "publication"
+        "phase", "paused", "paused_at", "server_now", "global_deadline_at",
+        "question", "publication"
     }
 
 
@@ -154,6 +155,7 @@ async def test_idle_has_no_question_and_no_publication_has_empty_boards(audience
 
     payload = (await audience_response(audience_ctx)).json()
     assert payload["question"] is None
+    assert payload["global_deadline_at"] is None
     assert payload["publication"] == {
         "published_at": None, "phase": None, "question_index": None,
         "leaderboard": [], "card_usage": [], "solution": None,
@@ -194,6 +196,8 @@ async def test_publish_freezes_ordered_scores_and_card_usage_until_republish(aud
             "freeze_used": False,
             "peek_used": True, 
             "swap_used": False,
+            "swap_target_team_id": None,
+            "swap_target_team_name": None,
         },
     ]
 
@@ -293,3 +297,74 @@ async def test_audience_survives_new_session_redis_failure_and_restart_clear(
     assert cleared["question"] is None
     assert cleared["publication"]["leaderboard"] == []
     assert cleared["publication"]["card_usage"] == []
+
+
+@pytest.mark.parametrize("phase", ["idle", "topic"])
+async def test_non_running_phase_has_no_audience_deadline(audience_ctx, phase):
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.phase = phase
+        rnd.global_deadline_at = None
+        await session.commit()
+
+    payload = (await audience_response(audience_ctx)).json()
+    assert payload["phase"] == phase
+    assert payload["global_deadline_at"] is None
+
+
+async def test_live_and_paused_expose_only_global_timer_state(audience_ctx):
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=149)
+    paused_at = deadline - timedelta(seconds=83)
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.phase = "live"
+        rnd.global_deadline_at = deadline
+        await session.commit()
+
+    live = (await audience_response(audience_ctx)).json()
+    assert datetime.fromisoformat(live["global_deadline_at"]) == deadline
+    assert live["paused_at"] is None
+
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.phase = "paused"
+        rnd.paused_at = paused_at
+        await session.commit()
+
+    paused = (await audience_response(audience_ctx)).json()
+    assert datetime.fromisoformat(paused["global_deadline_at"]) == deadline
+    assert datetime.fromisoformat(paused["paused_at"]) == paused_at
+    serialized = json.dumps(paused)
+    assert "deadline_at" not in serialized.replace("global_deadline_at", "")
+
+
+async def test_closed_retains_authoritative_deadline_for_zero_display(audience_ctx):
+    deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.phase = "closed"
+        rnd.global_deadline_at = deadline
+        await session.commit()
+
+    payload = (await audience_response(audience_ctx)).json()
+    assert payload["phase"] == "closed"
+    assert datetime.fromisoformat(payload["global_deadline_at"]) == deadline
+
+
+async def test_next_question_replaces_previous_global_deadline(audience_ctx):
+    first = datetime.now(timezone.utc) + timedelta(seconds=40)
+    second = first + timedelta(seconds=110)
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.phase = "live"
+        rnd.global_deadline_at = first
+        await session.commit()
+    first_payload = (await audience_response(audience_ctx)).json()
+    assert datetime.fromisoformat(first_payload["global_deadline_at"]) == first
+
+    async with audience_ctx["maker"]() as session:
+        rnd = await get_round(session)
+        rnd.global_deadline_at = second
+        await session.commit()
+    second_payload = (await audience_response(audience_ctx)).json()
+    assert datetime.fromisoformat(second_payload["global_deadline_at"]) == second
