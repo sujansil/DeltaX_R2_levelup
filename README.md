@@ -1,86 +1,165 @@
-# Level Up — Round 2
+# Delta X — Round 2: Level Up
 
-Server-authoritative quiz engine for 16 teams and 250+ concurrent viewers (one shared login per team). The UI is intentionally plain; the rules live in `app/scoring.py` and `app/engine.py`.
+Round 2 platform for **Delta X**, a team-based mathematics competition.
 
-## Rules implemented (as we locked them)
+This repository contains the backend, frontend, database migrations, automated tests, and deployment configuration used to run the round.
 
-- **Admin** shows the topic, then starts the question. After start: 150s, cards, and auto-close are automatic (hard stop at 180s so a Freeze can finish). Admin can also force-close.
-- **Timeout / never lock = 0** (no penalty). Card costs already spent still stay spent.
-- **Lock is explicit and one-shot.** Wrong lock = −500 (−1500 with Bounty).
-- **Scoring:** 2000 for 60s, then −20/s until 135s, floor 500.
-- **Bounty** (during topic only, −2000): 6000 / −1500 / 60pts/s / min 1500. Once per question.
-- **Freeze** (−750, once per question, anytime before that team’s timer ends): snapshots the current point value (decay stops) and **+30s** on that team’s deadline.
-- **Peek** (−750, once per question): shows that question’s hint. Other teams never see it.
-- **Swap** (free, **once for the whole round**): after you locked, before your timer ends, vs any team. Applied at question close, FIFO. Target is notified **after the question ends**.
-- **KingSlayer:** question **index > 5**. Snapshot at topic-show. Rank = 1 + teams with a strictly higher score. Bottom half = rank ≥ n/2+1 (ranks 9–16 with 16 teams). Ties for 8th are **not** bottom half. +500 on a correct answer only.
-- **Cards are private.** Other players cannot see who used what. Admin sees the live matrix. Optional end-of-game reveal flag exists (`POST /api/v1/admin/round/reveal-cards/1`) but is not auto-broadcast to the public board.
-- **Controller:** first device to `Become controller` can submit/cards. Others are view-only. Heartbeat 40s TTL. Admin can force-release.
+## What it includes
 
-Card costs require enough score. Default starting score is `INITIAL_TEAM_SCORE` (0 unless you change it). Give teams a bank in admin if you want Bounty on Q1.
+- Team authentication and session management
+- Up to four authenticated players per team
+- Server-authoritative question timing
+- Live scoring and grading
+- Power-up cards such as Bounty, Freeze, Peek, and Swap
+- Admin controls for running the round
+- Pause / resume support
+- Published leaderboard snapshots
+- Audience / projector view
+- Published card usage and solution reveal
+- PostgreSQL persistence
+- Redis-backed realtime/controller features
+- Recovery and operational tooling
 
-## Run (recommended)
+## Tech stack
+
+- FastAPI
+- PostgreSQL
+- Redis
+- SQLAlchemy
+- Alembic
+- Docker / Docker Compose
+- HTML / CSS / JavaScript
+
+## Project structure
+
+```text
+app/          Backend application
+static/       Login, player, admin, and audience interfaces
+tests/        Automated tests
+alembic/      Database migrations
+scripts/      Utility and setup scripts
+Dockerfile
+docker-compose.yml
+requirements.txt
+start.sh
+.env.example
+```
+
+## Setup
+
+Clone the repository and enter the project directory:
 
 ```bash
-cp .env.example .env   # set SECRET_KEY and ADMIN_PASSWORD
-docker compose up -d db redis
+git clone https://github.com/sujansil/DeltaX_R2_levelup.git
+cd levelup
+```
+
+Create a local environment file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your own local or deployment values.
+
+> Never commit real credentials, secrets, API keys, production database URLs, or private environment files.
+
+## Starting the application
+
+For a normal startup:
+
+```bash
+./start.sh
+```
+
+For a completely fresh local environment:
+
+```bash
+./start.sh --fresh
+```
+
+`--fresh` recreates local Docker volumes and should only be used when a database reset is intentional.
+
+## Local URLs
+
+After startup:
+
+```text
+Main application:
+http://localhost:8000
+
+Audience view:
+http://localhost:8000/audience
+```
+
+## Tests
+
+Run the automated test suite with:
+
+```bash
+python -m pytest -q
+```
+
+Some integration and concurrency tests require PostgreSQL and Redis services to be running.
+
+## Useful Docker commands
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+Follow API logs:
+
+```bash
+docker compose logs -f api
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Apply database migrations:
+
+```bash
 docker compose run --rm api alembic upgrade head
-docker compose run --rm api python -m scripts.seed
-docker compose up -d api
 ```
 
-Alembic is the schema authority. The API and seed command intentionally do
-not create or alter tables; run `alembic upgrade head` before either one.
+## Security note
 
-Open http://localhost:8000
+This repository is suitable for public source review, but operational secrets must remain outside version control.
 
-- Admin: `ADMIN_USERNAME` / `ADMIN_PASSWORD` (defaults `admin` / `change-me`)
-- Teams: `team01` … `team16` / `pass123`
+Do not commit:
 
-Without Docker: PostgreSQL 16 + Redis 7, `pip install -r requirements.txt`, `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`.
-
-```bash
-pytest -q
+```text
+.env
+production credentials
+JWT secrets
+cloud credentials
+private keys
+database dumps
+runtime logs
+virtual environments
+cache files
 ```
 
-## Why this holds 250 connections
+If a secret is ever committed, removing it from the latest file is not enough; rotate the credential as well.
 
-- **Postgres** is the source of truth. Score and card mutations use **row locks** (`FOR UPDATE`) on the team / round / team-question rows.
-- **WebSocket connections do not hold DB connections.** Workers fan out via **Redis pub/sub**, so you can run multiple Uvicorn workers.
-- Timers are **timestamps**, not per-second jobs per user. Clients render countdown from `deadline_at` + `server_now`.
-- Auto-close is a 250ms loop with a **Redis NX lock** so only one worker grades.
-- Pool: 20+20 overflow per API process. 250 viewers ≠ 250 DB sessions.
+## Status
 
-Scale later: raise `--workers`, point `DATABASE_URL` at managed Postgres (RDS/Neon/Crunchy), `REDIS_URL` at ElastiCache/Upstash, put the API behind any reverse proxy. Sticky sessions are **not** required.
+The project is currently in the testing and deployment-validation stage.
 
-## API sketch
+Current focus areas include:
 
-| Action | Endpoint |
-|---|---|
-| Login | `POST /api/v1/auth/login` |
-| Play state | `GET /api/v1/play/state` |
-| Claim writer | `POST /api/v1/play/controller/claim` |
-| Cards / lock / swap | `POST /api/v1/play/{bounty,freeze,peek,lock,swap}` |
-| Admin teams/questions | `POST/GET /api/v1/admin/teams`, `.../questions` |
-| Show topic / start / close | `POST /api/v1/admin/round/show-topic/{id}`, `.../start`, `.../close` |
-| Override grade | `POST /api/v1/admin/grade/override` |
-| Live socket | `WS /ws?token=...` |
+- load testing
+- deployment rehearsal
+- backup and restore validation
+- failure recovery testing
+- event-day operational checks
 
-Question payload `qtype`: `mcq_single` | `mcq_multi` | `numeric` | `text`.
+## License
 
-Answer key examples:
-
-```json
-{"option_id": "b"}
-{"option_ids": ["b", "c"]}
-{"value": "9", "tolerance": "0"}
-{"value": "Texas Instruments"}
-```
-
-## Production checklist
-
-- Strong `SECRET_KEY` and admin password
-- HTTPS at the proxy
-- Managed Postgres + Redis with persistence
-- Do not expose Postgres/Redis ports
-- Change team passwords after seed
-- Set `INITIAL_TEAM_SCORE` or assign banks before round start
+No license is currently specified.
