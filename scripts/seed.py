@@ -89,7 +89,7 @@ async def main() -> None:
     settings = get_settings()
     async with SessionLocal() as session:
         # Seed 16 teams
-        for i in range(1, 17):
+        for i in range(1, 24):
             name = f"Team {i:02d}"
             username = f"team{i:02d}"
             if (await session.execute(select(Team).where(Team.name == name))).scalar_one_or_none():

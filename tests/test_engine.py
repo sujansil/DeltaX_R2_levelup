@@ -27,10 +27,11 @@ from app.engine import (
     use_peek,
     use_swap,
 )
-from app.models import AuditEvent, Base, Question, Team, TeamQuestion
+from app.models import AuditEvent, Base, Question, SwapEvent, Team, TeamQuestion
 from app.routers.admin import QuestionIn, api_round
 from app.routers.play import _require_controller, release, state
-from app.scoring import BOUNTY_COST, PEEK_COST, QUESTION_MS
+from app.routers.public import audience
+from app.scoring import BOUNTY_COST, PEEK_COST, QUESTION_MS, public_rules, validate_timing_constants
 
 
 @pytest.fixture
@@ -580,3 +581,160 @@ async def test_player_state_shows_live_timer_contract(ctx, monkeypatch):
     assert payload["phase"] == "live"
     assert payload["timer_total_sec"] == 150
     assert 0 < payload["time_left_sec"] <= 120
+    assert payload["rules"] == public_rules()
+    assert payload["rules"]["question_duration_ms"] == QUESTION_MS
+    assert all(payload["features"].values())
+
+
+@pytest.mark.parametrize("feature", ["bounty", "freeze", "peek", "swap"])
+async def test_disabled_card_rejects_before_mutation(ctx, monkeypatch, feature):
+    session, clock, first, second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    if feature != "bounty":
+        await start_question(session, "admin", clock)
+    if feature == "swap":
+        await lock_answer(session, first.id, {"option_id": "b"}, "alpha", clock)
+    await session.flush()
+    row = (await session.execute(select(TeamQuestion).where(
+        TeamQuestion.team_id == first.id, TeamQuestion.question_id == question.id
+    ))).scalar_one()
+    score_before = first.score
+    deadline_before = row.deadline_at
+    audit_before = await session.scalar(select(func.count()).select_from(AuditEvent))
+    monkeypatch.setattr(get_settings(), f"enable_{feature}", False)
+
+    action = {
+        "bounty": lambda: activate_bounty(session, first.id, "alpha", clock),
+        "freeze": lambda: use_freeze(session, first.id, "alpha", clock),
+        "peek": lambda: use_peek(session, first.id, "alpha", clock),
+        "swap": lambda: use_swap(session, first.id, second.id, "alpha", clock),
+    }[feature]
+    with pytest.raises(EngineError) as error:
+        await action()
+    assert error.value.code == "feature_disabled"
+    assert error.value.status == 403
+    assert first.score == score_before
+    assert row.deadline_at == deadline_before
+    assert not getattr(row, feature if feature != "swap" else "swap_used")
+    assert await session.scalar(select(func.count()).select_from(AuditEvent)) == audit_before
+    assert await session.scalar(select(func.count()).select_from(SwapEvent)) == 0
+
+
+async def test_disabled_freeze_keeps_existing_extension(ctx, monkeypatch):
+    session, clock, first, _second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    await start_question(session, "admin", clock)
+    clock.advance_sec(120)
+    frozen = await use_freeze(session, first.id, "alpha", clock)
+    extended_deadline = frozen.deadline_at
+    monkeypatch.setattr(get_settings(), "enable_freeze", False)
+    clock.advance_sec(40)
+    await lock_answer(session, first.id, {"option_id": "b"}, "alpha", clock)
+    assert frozen.deadline_at == extended_deadline
+    assert frozen.locked is True
+
+
+async def test_disabled_bounty_keeps_existing_scoring(ctx, monkeypatch):
+    session, clock, first, _second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    bounty_row = await activate_bounty(session, first.id, "alpha", clock)
+    monkeypatch.setattr(get_settings(), "enable_bounty", False)
+    await start_question(session, "admin", clock)
+    await lock_answer(session, first.id, {"option_id": "b"}, "alpha", clock)
+    await close_question(session, "admin", clock)
+    assert bounty_row.points_delta == 6000
+
+
+async def test_disabled_peek_keeps_existing_hint(ctx, monkeypatch):
+    session, clock, first, _second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    await start_question(session, "admin", clock)
+    peeked = await use_peek(session, first.id, "alpha", clock)
+    monkeypatch.setattr(get_settings(), "enable_peek", False)
+    view = tq_player_view(peeked, question, live_started_at=(await get_round(session)).live_started_at,
+                          now=clock.now(), include_hint=peeked.peek)
+    assert view["hint"] == question.hint
+
+
+async def test_disabled_swap_keeps_pending_event(ctx, monkeypatch):
+    session, clock, first, second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    await start_question(session, "admin", clock)
+    await lock_answer(session, first.id, {"option_id": "b"}, "alpha", clock)
+    swap = await use_swap(session, first.id, second.id, "alpha", clock)
+    monkeypatch.setattr(get_settings(), "enable_swap", False)
+    await close_question(session, "admin", clock)
+    assert swap.applied is True
+    target_row = (await session.execute(select(TeamQuestion).where(
+        TeamQuestion.team_id == second.id, TeamQuestion.question_id == question.id
+    ))).scalar_one()
+    assert target_row.answer == {"option_id": "b"}
+
+
+async def test_disabled_kingslayer_only_affects_new_snapshot(ctx, monkeypatch):
+    session, clock, first, second, _question = ctx
+    later = Question(id=uuid4(), index=6, topic="Later", prompt="2+2?", qtype="mcq_single",
+                     options=[{"id": "b", "text": "4"}], answer_key={"option_id": "b"})
+    session.add(later)
+    first.score = 4000
+    second.score = 5000
+    await session.flush()
+    await show_topic(session, later.id, "admin", clock)
+    old_row = (await session.execute(select(TeamQuestion).where(
+        TeamQuestion.team_id == first.id, TeamQuestion.question_id == later.id
+    ))).scalar_one()
+    assert old_row.kingslayer_eligible is True
+    monkeypatch.setattr(get_settings(), "enable_kingslayer", False)
+    await start_question(session, "admin", clock)
+    await lock_answer(session, first.id, {"option_id": "b"}, "alpha", clock)
+    await close_question(session, "admin", clock)
+    assert old_row.points_delta == 2500
+    another = Question(id=uuid4(), index=7, topic="Another", prompt="2+2?", qtype="mcq_single",
+                       options=[{"id": "b", "text": "4"}], answer_key={"option_id": "b"})
+    session.add(another)
+    await session.flush()
+    await show_topic(session, another.id, "admin", clock)
+    new_rows = (await session.execute(select(TeamQuestion).where(TeamQuestion.question_id == another.id))).scalars().all()
+    assert new_rows and not any(row.kingslayer_eligible for row in new_rows)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("QUESTION_MS", 0),
+    ("DECAY_START_MS", -1),
+    ("DECAY_END_MS", 59_999),
+    ("FREEZE_BONUS_MS", 0),
+])
+def test_timing_validation_rejects_invalid_values(monkeypatch, field, value):
+    import app.scoring as scoring
+    validate_timing_constants()
+    monkeypatch.setattr(scoring, field, value)
+    with pytest.raises(ValueError, match=field):
+        validate_timing_constants()
+
+
+def test_timing_validation_allows_decay_floor_after_question(monkeypatch):
+    import app.scoring as scoring
+    monkeypatch.setattr(scoring, "QUESTION_MS", 90_000)
+    validate_timing_constants()
+
+
+async def test_player_admin_audience_share_authoritative_deadline(ctx, monkeypatch):
+    session, clock, first, _second, question = ctx
+    await show_topic(session, question.id, "admin", clock)
+    await start_question(session, "admin", clock)
+
+    async def no_controller(_team_id):
+        return None
+
+    monkeypatch.setattr("app.routers.play.get_controller", no_controller)
+    principal = Principal(user_id=first.id, username="alpha", role="team",
+                          team_id=first.id, session_id="s-1")
+    player = await state(session, principal)
+    admin = await api_round(session, None)
+    public = await audience(session)
+    expected = int((clock.now() + timedelta(milliseconds=QUESTION_MS)).timestamp() * 1000)
+
+    assert player["deadline_ms"] == expected
+    assert admin["global_deadline_ms"] == expected
+    assert int(datetime.fromisoformat(public["global_deadline_at"]).timestamp() * 1000) == expected
+    assert player["rules"]["question_duration_ms"] == QUESTION_MS

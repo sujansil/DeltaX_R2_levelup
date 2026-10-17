@@ -17,6 +17,7 @@ from app.models import RoundState, User
 from app.redisutil import close_redis
 from app.routers import admin, auth, play, public, ws
 from app.security import hash_password
+from app.scoring import validate_timing_constants
 from app.ws import redis_subscriber
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -24,6 +25,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_timing_constants()
     async with SessionLocal() as session:
         settings = get_settings()
         existing = (await session.execute(select(User).where(User.username == settings.admin_username))).scalar_one_or_none()

@@ -22,6 +22,7 @@ from app.engine import (
 )
 from app.models import Question, Team, TeamQuestion
 from app.redisutil import claim_controller, get_controller, heartbeat_controller, release_controller
+from app.scoring import QUESTION_MS, public_rules
 from app.ws import PUBLIC, emit_admin_notice, hub, notify_after_commit, team_channel
 from sqlalchemy import select
 
@@ -130,7 +131,7 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         deadline_ms = int(dt.timestamp() * 1000) + (timer_total_sec * 1000)
 
     elif rnd.phase in ("live", "paused") and rnd.live_started_at is not None:
-        timer_total_sec = get_settings().question_duration_sec
+        timer_total_sec = QUESTION_MS // 1000 if QUESTION_MS % 1000 == 0 else QUESTION_MS / 1000
         if row and row.deadline_at is not None:
             dt = row.deadline_at.replace(tzinfo=timezone.utc) if not row.deadline_at.tzinfo else row.deadline_at
             deadline_ms = int(dt.timestamp() * 1000)
@@ -172,6 +173,14 @@ async def state(session: AsyncSession = Depends(get_session), principal: Princip
         "paused_at": rnd.paused_at.isoformat() if rnd.paused_at else None,
         
         "timer_total_sec": timer_total_sec,
+        "rules": public_rules(),
+        "features": {
+            "bounty": get_settings().enable_bounty,
+            "freeze": get_settings().enable_freeze,
+            "peek": get_settings().enable_peek,
+            "swap": get_settings().enable_swap,
+            "kingslayer": get_settings().enable_kingslayer,
+        },
         "deadline_ms": deadline_ms,
         "time_left_sec": time_left_sec,
         "question": question,

@@ -54,7 +54,7 @@
             <span class="eyebrow">PUBLISHED STANDINGS</span>
             <h2>Leaderboard</h2>
           </div>
-          <span class="panel-code">LB/16</span>
+          <span class="panel-code">LEADERBOARD</span>
         </div>
         <div id="desktop-leaderboard" class="leaderboard-list"></div>
         <div class="panel-footnote">Leaderboard updates only when the host publishes a snapshot.</div>
@@ -175,13 +175,13 @@
           </div>
           <div class="power-grid desktop-power-grid">
             <button id="bounty-button" class="power-card" data-card="bounty" type="button">
-              <span class="power-code">×3</span><strong>Bounty</strong><small>2000 pts</small>
+              <span class="power-code" id="bounty-multiplier">B</span><strong>Bounty</strong><small id="bounty-cost">— pts</small>
             </button>
             <button id="freeze-button" class="power-card" data-card="freeze" type="button">
-              <span class="power-code">+30</span><strong>Freeze</strong><small>750 pts</small>
+              <span class="power-code" id="freeze-bonus">+</span><strong>Freeze</strong><small id="freeze-cost">— pts</small>
             </button>
             <button id="peek-button" class="power-card" data-card="peek" type="button">
-              <span class="power-code">◉</span><strong>Peek</strong><small>750 pts</small>
+              <span class="power-code">◉</span><strong>Peek</strong><small id="peek-cost">— pts</small>
             </button>
             <button id="swap-button" class="power-card" data-card="swap" type="button">
               <span class="power-code">⇄</span><strong>Swap</strong><small>one use</small>
@@ -192,8 +192,8 @@
     </main>
 
     <nav class="mobile-power-dock" aria-label="Power ups">
-      <button id="mobile-bounty-button" class="dock-card" type="button"><span>×3</span>Bounty</button>
-      <button id="mobile-freeze-button" class="dock-card" type="button"><span>+30</span>Freeze</button>
+      <button id="mobile-bounty-button" class="dock-card" type="button"><span id="mobile-bounty-multiplier">B</span>Bounty</button>
+      <button id="mobile-freeze-button" class="dock-card" type="button"><span id="mobile-freeze-bonus">+</span>Freeze</button>
       <button id="mobile-peek-button" class="dock-card" type="button"><span>◉</span>Peek</button>
       <button id="mobile-swap-button" class="dock-card" type="button"><span>⇄</span>Swap</button>
     </nav>

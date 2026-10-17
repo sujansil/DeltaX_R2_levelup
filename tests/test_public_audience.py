@@ -14,6 +14,7 @@ from app.engine import get_round, restart_round
 from app.models import Base, PublishedLeaderboard, Question, Team, TeamQuestion, SwapEvent
 from app.routers import admin as admin_routes
 from app.routers import public as public_routes
+from app.routers import play as play_routes
 
 
 def admin_principal() -> Principal:
@@ -228,6 +229,39 @@ async def test_publish_freezes_ordered_scores_and_card_usage_until_republish(aud
         row for row in replaced["card_usage"] if row["team_name"] == "Alpha"
     )
     assert alpha_cards["freeze_used"] is True
+
+
+async def test_twenty_teams_remain_in_publication_admin_and_player_data(audience_ctx, monkeypatch):
+    async with audience_ctx["maker"]() as session:
+        session.add_all([
+            Team(id=uuid4(), name=f"Extra {index:02d}", score=1000 - index)
+            for index in range(18)
+        ])
+        await session.commit()
+        await admin_routes.api_publish_leaderboard(session=session, admin=admin_principal())
+        snapshot = await session.get(PublishedLeaderboard, 1)
+        assert len(snapshot.rows) == 20
+        assert len(snapshot.card_usage_rows) == 20
+
+    public_payload = (await audience_response(audience_ctx)).json()
+    assert len(public_payload["publication"]["leaderboard"]) == 20
+    assert len(public_payload["publication"]["card_usage"]) == 20
+
+    async def no_controller(_team_id):
+        return None
+
+    monkeypatch.setattr(play_routes, "get_controller", no_controller)
+    async with audience_ctx["maker"]() as session:
+        admin_payload = await admin_routes.api_round(session=session, _=admin_principal())
+        player_payload = await play_routes.state(
+            session=session,
+            principal=Principal(
+                user_id=uuid4(), username="alpha", role="team",
+                team_id=audience_ctx["alpha"].id, session_id=str(uuid4()),
+            ),
+        )
+    assert len(admin_payload["leaderboard"]) == 20
+    assert len(player_payload["leaderboard"]) == 20
 
 
 async def test_publish_without_question_has_empty_card_usage(audience_ctx):

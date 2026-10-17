@@ -96,7 +96,7 @@ async def snapshot_kingslayer(session: AsyncSession, question: Question) -> dict
     scores = {t.id: t.score for t in teams}
     ranks = ranks_by_score({str(k): v for k, v in scores.items()})
     n = len(teams)
-    apply = kingslayer_applies(question.index, get_settings().kingslayer_after_question)
+    apply = get_settings().enable_kingslayer and kingslayer_applies(question.index, get_settings().kingslayer_after_question)
     out: dict[UUID, bool] = {}
     for t in teams:
         out[t.id] = apply and is_bottom_half(ranks[str(t.id)], n)
@@ -478,6 +478,8 @@ async def reorder_questions(session: AsyncSession, ordered_ids: list[UUID], acto
 
 
 async def activate_bounty(session: AsyncSession, team_id: UUID, actor: str, clock: Clock | None = None) -> TeamQuestion:
+    if not get_settings().enable_bounty:
+        raise EngineError("feature_disabled", "Bounty is disabled", 403)
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
     if rnd.phase != "topic" or rnd.current_question_id is None:
@@ -533,6 +535,8 @@ async def _tq(session: AsyncSession, team_id: UUID, question_id: UUID, *, for_up
 
 
 async def use_freeze(session: AsyncSession, team_id: UUID, actor: str, clock: Clock | None = None) -> TeamQuestion:
+    if not get_settings().enable_freeze:
+        raise EngineError("feature_disabled", "Freeze is disabled", 403)
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
     if rnd.phase != "live" or rnd.current_question_id is None or rnd.live_started_at is None:
@@ -570,6 +574,8 @@ async def use_freeze(session: AsyncSession, team_id: UUID, actor: str, clock: Cl
 
 
 async def use_peek(session: AsyncSession, team_id: UUID, actor: str, clock: Clock | None = None) -> TeamQuestion:
+    if not get_settings().enable_peek:
+        raise EngineError("feature_disabled", "Peek is disabled", 403)
     clock = clock or SystemClock()
     rnd = await get_round(session, for_update=True)
     if rnd.phase != "live" or rnd.current_question_id is None:
@@ -638,6 +644,8 @@ async def use_swap(
     actor: str,
     clock: Clock | None = None,
 ) -> SwapEvent:
+    if not get_settings().enable_swap:
+        raise EngineError("feature_disabled", "Swap is disabled", 403)
     clock = clock or SystemClock()
     if team_id == target_team_id:
         raise EngineError("bad_target", "Cannot swap with yourself")

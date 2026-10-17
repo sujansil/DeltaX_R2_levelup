@@ -137,8 +137,19 @@
     $("published-time").textContent = next.published_at
       ? `${next.question_index == null ? "LAST PUBLISHED" : `Q${next.question_index}`} · ${formatTime(next.published_at)}`
       : "—";
-    renderLeaderboard(next.leaderboard || [], previous.leaderboard || [], animate);
-    renderCards(next.card_usage || [], previous.card_usage || [], animate);
+    const { visibleRows, visibleCardRows } = visiblePublicationRows(next);
+    renderLeaderboard(visibleRows, previous.leaderboard || [], animate);
+    renderCards(visibleCardRows, previous.card_usage || [], animate);
+  }
+
+  function visiblePublicationRows(publication) {
+    const visibleRows = (publication.leaderboard || []).slice(0, 16);
+    const visibleTeamIds = new Set(visibleRows.map(teamKey));
+    const cardsByTeam = rowsByTeam(
+      (publication.card_usage || []).filter((row) => visibleTeamIds.has(teamKey(row)))
+    );
+    const visibleCardRows = visibleRows.map((row) => cardsByTeam.get(teamKey(row))).filter(Boolean);
+    return { visibleRows, visibleCardRows };
   }
 
   function renderSolution(solution, question, animate) {
@@ -468,6 +479,7 @@
     emptyPublication,
     optionLabel,
     rowsByTeam,
+    visiblePublicationRows,
     publicationChanged: (initializedState, previousAt, nextAt) => initializedState && previousAt !== nextAt,
     cardWasRevealed: (before, after, field) => !!after?.[field] && !before?.[field],
     solutionMatchesQuestion: (solution, question) => !!solution && !!question

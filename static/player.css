@@ -307,6 +307,7 @@ button { color: inherit; }
 .power-card.used { border-color: rgba(180,201,139,.35); background: rgba(180,201,139,.055); }
 .power-card.used:disabled { opacity: 1; }
 .power-card.unavailable { border-color: var(--line); background: rgba(255,255,255,.018); }
+.power-card[hidden], .dock-card[hidden] { display: none; }
 .power-code { font: 700 15px/1 var(--mono); color: var(--cyan); }
 .power-card strong { font-size: 11px; }
 .power-card small { color: var(--muted); font: 8px/1 var(--mono); }

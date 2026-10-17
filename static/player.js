@@ -5,14 +5,6 @@
     return;
   }
 
-  const CARD_COSTS = { bounty: 2000, freeze: 750, peek: 750 };
-  const SCORE_RULES = {
-    normal: { start: 2000, decay: 20, floor: 500 },
-    bounty: { start: 6000, decay: 60, floor: 1500 },
-    decayStartMs: 60_000,
-    freezeBonusMs: 30_000,
-  };
-
   let gameState = null;
   let selectedChoice = null;
   let selectedMulti = new Set();
@@ -123,6 +115,7 @@
     renderLeaderboard(state.leaderboard || [], team.id, "mobile-leaderboard");
     renderController(state);
     renderCards(state);
+    renderRuleLabels(state);
     renderSwapTargets(state);
 
     if (q) renderQuestion(q, me, state);
@@ -264,6 +257,8 @@
   function renderCards(state) {
     const me = state?.me || {};
     const team = state?.team || {};
+    const features = state?.features || {};
+    const rules = state?.rules || {};
     // Power-up availability is governed by gameplay phase, controller ownership,
     // score, and whether the card has already been used. `reveal_cards` is a
     // legacy/admin reveal flag and must not gate gameplay access.
@@ -272,26 +267,27 @@
     const specs = {
       bounty: {
         used: !!me.bounty,
-        enabled: state.i_am_controller && state.phase === "topic" && !me.bounty && Number(team.score || 0) >= CARD_COSTS.bounty,
+        enabled: !!features.bounty && state.i_am_controller && state.phase === "topic" && !me.bounty && Number(team.score || 0) >= Number(rules.bounty?.cost),
       },
       freeze: {
         used: !!me.freeze,
-        enabled: state.i_am_controller && state.phase === "live" && !me.freeze && Number(team.score || 0) >= CARD_COSTS.freeze,
+        enabled: !!features.freeze && state.i_am_controller && state.phase === "live" && !me.freeze && Number(team.score || 0) >= Number(rules.freeze?.cost),
       },
       peek: {
         used: !!me.peek,
-        enabled: state.i_am_controller && state.phase === "live" && !me.peek && Number(team.score || 0) >= CARD_COSTS.peek,
+        enabled: !!features.peek && state.i_am_controller && state.phase === "live" && !me.peek && Number(team.score || 0) >= Number(rules.peek?.cost),
       },
       swap: {
         used: !!me.swap_used,
         unavailable: !me.swap_used && team.swap_available === false,
-        enabled: state.i_am_controller && state.phase === "live" && !!me.locked && !me.swap_used && team.swap_available !== false,
+        enabled: !!features.swap && state.i_am_controller && state.phase === "live" && !!me.locked && !me.swap_used && team.swap_available !== false,
       },
     };
 
     Object.entries(specs).forEach(([name, spec]) => {
       [$(`${name}-button`), $(`mobile-${name}-button`)].filter(Boolean).forEach((btn) => {
         btn.disabled = !spec.enabled;
+        btn.hidden = !features[name];
         btn.classList.toggle("used", spec.used);
         btn.classList.toggle("unavailable", !!spec.unavailable);
         btn.dataset.used = String(spec.used);
@@ -299,6 +295,23 @@
         btn.title = spec.used ? "Already used" : (spec.unavailable ? "Unavailable" : "");
       });
     });
+  }
+
+  function renderRuleLabels(state) {
+    const rules = state?.rules || {};
+    for (const name of ["bounty", "freeze", "peek"]) {
+      const cost = rules[name]?.cost;
+      $(`${name}-cost`).textContent = cost == null ? "— pts" : `${formatNumber(cost)} pts`;
+    }
+    const bonus = rules.freeze_bonus_ms;
+    const label = bonus == null ? "+" : `+${formatNumber(bonus / 1000)}`;
+    $("freeze-bonus").textContent = label;
+    $("mobile-freeze-bonus").textContent = label;
+    const normalBase = Number(rules.normal?.base_score || 0);
+    const multiplier = normalBase > 0 ? Number(rules.bounty?.base_score || 0) / normalBase : 0;
+    const bountyLabel = multiplier > 0 ? `×${formatNumber(multiplier)}` : "B";
+    $("bounty-multiplier").textContent = bountyLabel;
+    $("mobile-bounty-multiplier").textContent = bountyLabel;
   }
 
   function renderLeaderboard(rows, ownTeamId, targetId) {
@@ -310,7 +323,6 @@
     }
     target.innerHTML = [...rows]
       .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999) || String(a.name).localeCompare(String(b.name)))
-      .slice(0, 16)
       .map((row, index) => {
         const own = row.id === ownTeamId;
         return `
@@ -382,8 +394,8 @@
     $("topic-timer").textContent = formatted;
 
     const totalMs = state.phase === "topic"
-      ? 45_000
-      : 150_000 + (state?.me?.freeze ? SCORE_RULES.freezeBonusMs : 0);
+      ? Number(state.timer_total_sec || 0) * 1000
+      : Number(state?.rules?.question_duration_ms || 0) + (state?.me?.freeze ? Number(state?.rules?.freeze_bonus_ms || 0) : 0);
     const pct = totalMs > 0 ? Math.max(0, Math.min(100, remainingMs / totalMs * 100)) : 0;
     $("timer-bar").style.width = `${pct}%`;
 
@@ -411,9 +423,9 @@
     }
 
     const points = calculateDisplayedPotential(state);
-    const rules = me.bounty ? SCORE_RULES.bounty : SCORE_RULES.normal;
-    const range = rules.start - rules.floor;
-    const pct = range > 0 ? Math.max(0, Math.min(100, (points - rules.floor) / range * 100)) : 0;
+    const rules = me.bounty ? state?.rules?.bounty : state?.rules?.normal;
+    const range = Number(rules?.base_score || 0) - Number(rules?.minimum || 0);
+    const pct = range > 0 ? Math.max(0, Math.min(100, (points - Number(rules.minimum)) / range * 100)) : 0;
 
     $("potential-value").textContent = formatNumber(points);
     $("potential-bar").style.width = `${pct}%`;
@@ -429,7 +441,8 @@
     if (me.locked && me.potential_points !== undefined && me.potential_points !== null) {
       return Number(me.potential_points);
     }
-    if (!state.live_started_at) return Number(me.potential_points || (me.bounty ? 6000 : 2000));
+    const rules = me.bounty ? state?.rules?.bounty : state?.rules?.normal;
+    if (!state.live_started_at) return Number(me.potential_points ?? rules?.base_score ?? 0);
 
     const liveStart = new Date(state.live_started_at).getTime();
     const now = serverNowMs(state.server_now);
@@ -438,13 +451,14 @@
 
     let scoringElapsed = elapsed;
     if (me.freeze && me.freeze_elapsed_ms !== null && me.freeze_elapsed_ms !== undefined) {
-      scoringElapsed = Math.max(Number(me.freeze_elapsed_ms), elapsed - SCORE_RULES.freezeBonusMs);
+      scoringElapsed = Math.max(Number(me.freeze_elapsed_ms), elapsed - Number(state?.rules?.freeze_bonus_ms || 0));
     }
 
-    const rules = me.bounty ? SCORE_RULES.bounty : SCORE_RULES.normal;
-    if (scoringElapsed <= SCORE_RULES.decayStartMs) return rules.start;
-    const decay = Math.floor(rules.decay * (scoringElapsed - SCORE_RULES.decayStartMs) / 1000);
-    return Math.max(rules.floor, rules.start - decay);
+    if (!rules) return Number(me.potential_points || 0);
+    if (scoringElapsed <= state.rules.decay_start_ms) return rules.base_score;
+    if (scoringElapsed >= state.rules.decay_end_ms) return rules.minimum;
+    const decay = Math.floor(rules.decay_per_sec * (scoringElapsed - state.rules.decay_start_ms) / 1000);
+    return Math.max(rules.minimum, rules.base_score - decay);
   }
 
   function computeRemainingMs(state) {

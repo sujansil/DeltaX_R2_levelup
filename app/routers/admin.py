@@ -38,6 +38,7 @@ from app.engine import (
 from app.models import AuditEvent, AuthSession, PublishedLeaderboard, Question, RoundState, SwapEvent, Team, TeamQuestion, User
 from app.redisutil import get_controller, release_controller
 from app.security import hash_password
+from app.scoring import QUESTION_MS
 from app.ws import ADMIN, PUBLIC, hub, notify_after_commit, team_channel
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -677,11 +678,11 @@ async def api_round(session: AsyncSession = Depends(get_session), _: Principal =
     # everything converted to milliseconds
     if rnd.phase == "topic" and rnd.topic_shown_at:
         dt = rnd.topic_shown_at.replace(tzinfo=timezone.utc) if not rnd.topic_shown_at.tzinfo else rnd.topic_shown_at
-        global_deadline_ms = int(dt.timestamp() * 1000) + 45000
+        global_deadline_ms = int(dt.timestamp() * 1000) + get_settings().topic_duration_sec * 1000
 
     elif rnd.phase in ("live", "paused") and rnd.live_started_at:
         dt = rnd.live_started_at.replace(tzinfo=timezone.utc) if not rnd.live_started_at.tzinfo else rnd.live_started_at
-        global_deadline_ms = int(dt.timestamp() * 1000) + 150000
+        global_deadline_ms = int(dt.timestamp() * 1000) + QUESTION_MS
         if rnd.global_deadline_at:
             g_dt = rnd.global_deadline_at.replace(tzinfo=timezone.utc) if not rnd.global_deadline_at.tzinfo else rnd.global_deadline_at
             global_deadline_ms = int(g_dt.timestamp() * 1000)

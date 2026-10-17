@@ -17,11 +17,12 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8000"
 
     topic_duration_sec: int = 45
-    question_duration_sec: int = 150
-    freeze_bonus_sec: int = 30
-    decay_start_sec: int = 60
-    decay_end_sec: int = 135
     kingslayer_after_question: int = 5
+    enable_bounty: bool = True
+    enable_freeze: bool = True
+    enable_peek: bool = True
+    enable_swap: bool = True
+    enable_kingslayer: bool = True
     controller_ttl_sec: int = 40
     jwt_algorithm: str = "HS256"
 

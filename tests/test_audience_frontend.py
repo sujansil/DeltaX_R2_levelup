@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from httpx import ASGITransport, AsyncClient
 
 from app.main import create_app
@@ -54,6 +56,7 @@ def test_audience_phase_placeholders_reduced_motion_and_responsive_layout_exist(
 
     assert "ROUND STANDBY" in html
     assert "STANDINGS NOT YET PUBLISHED" in html
+    assert '<h2 id="standings-heading">Top 16 Standings</h2>' in html
     assert "CARD USAGE NOT YET PUBLISHED" in html
     assert 'phase === "topic"' in script
     assert 'phase === "closed"' in script
@@ -72,6 +75,42 @@ def test_audience_phase_placeholders_reduced_motion_and_responsive_layout_exist(
     assert "solution-reveal" in css
     assert 'id="question-timer"' in html
     assert "font-variant-numeric: tabular-nums" in css
+
+
+@pytest.mark.parametrize("team_count", [8, 16, 20, 32])
+def test_audience_selects_top_sixteen_and_matching_cards_without_mutating_publication(team_count):
+    script_path = ROOT / "static" / "audience.js"
+    harness = f"""
+const fs = require('fs');
+global.window = {{ matchMedia: () => ({{ matches: true }}) }};
+global.document = {{ addEventListener: () => {{}} }};
+eval(fs.readFileSync({json.dumps(str(script_path))}, 'utf8'));
+const rows = Array.from({{ length: {team_count} }}, (_, i) => ({{
+  id: `team-${{i + 1}}`, name: `Team ${{i + 1}}`,
+  rank: i === 14 ? 14 : i === 16 ? 16 : i + 1, score: 100 - i,
+}}));
+const cardUsage = [...rows].reverse().map((row) => ({{ team_id: row.id, team_name: row.name }}));
+cardUsage.push({{ team_id: 'not-ranked', team_name: 'Not ranked' }});
+const publication = {{ leaderboard: rows, card_usage: cardUsage }};
+const selected = window.__audienceTest.visiblePublicationRows(publication);
+console.log(JSON.stringify({{
+  displayedIds: selected.visibleRows.map((row) => row.id),
+  displayedRanks: selected.visibleRows.map((row) => row.rank),
+  cardIds: selected.visibleCardRows.map((row) => row.team_id),
+  originalLeaderboardLength: publication.leaderboard.length,
+  originalCardLength: publication.card_usage.length,
+}}));
+"""
+    result = subprocess.run(["node", "-e", harness], check=True, capture_output=True, text=True)
+    selected = json.loads(result.stdout)
+    visible_count = min(team_count, 16)
+    visible_ids = [f"team-{index}" for index in range(1, visible_count + 1)]
+    assert selected["displayedIds"] == visible_ids
+    assert selected["cardIds"] == visible_ids
+    expected_ranks = [14 if index == 15 else index for index in range(1, visible_count + 1)]
+    assert selected["displayedRanks"] == expected_ranks
+    assert selected["originalLeaderboardLength"] == team_count
+    assert selected["originalCardLength"] == team_count + 1
 
 
 def test_authoritative_timer_math_pause_rounding_and_single_interval():

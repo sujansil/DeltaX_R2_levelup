@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).parents[1]
@@ -20,6 +22,56 @@ def test_player_frontend_is_local_responsive_and_has_clean_timeout_refresh():
     assert 'class="mobile-power-dock"' in html
     assert "remainingMs <= 0" in js
     assert "refreshState({ quiet: true })" in js
+    assert "LB/16" not in html
+    assert ".slice(0, 16)" not in js
+    assert "CARD_COSTS" not in js
+    assert "SCORE_RULES" not in js
+    assert 'state?.rules?.question_duration_ms' in js
+    assert 'state?.features || {}' in js
+    for literal in ("2000 pts", "750 pts", "+30", "×3"):
+        assert literal not in html
+
+
+def test_player_leaderboard_renders_all_twenty_published_teams():
+    script = (ROOT / "static" / "player.js").read_text().replace(
+        "  function renderLeaderboard(",
+        "  window.__testRenderLeaderboard = renderLeaderboard;\n  function renderLeaderboard(",
+        1,
+    ).replace(
+        "  function renderRuleLabels(",
+        "  window.__testRenderRuleLabels = renderRuleLabels;\n  function renderRuleLabels(",
+        1,
+    )
+    harness = r"""
+global.auth = () => ({ role: "team", access_token: "test" });
+global.window = { addEventListener() {}, location: { href: "" } };
+const elements = new Map();
+const element = (id) => {
+  if (!elements.has(id)) elements.set(id, { innerHTML: "", textContent: "" });
+  return elements.get(id);
+};
+global.document = { addEventListener() {}, getElementById: element };
+eval(process.env.PLAYER_SCRIPT);
+const rows = Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, name: `Team ${i}`, rank: i + 1, score: 100 - i }));
+window.__testRenderLeaderboard(rows, "t19", "board");
+if ((element("board").innerHTML.match(/class="board-row/g) || []).length !== 20) process.exit(1);
+if (!element("board").innerHTML.includes("Team 19")) process.exit(2);
+window.__testRenderRuleLabels({ rules: {
+  normal: { base_score: 1000 }, bounty: { base_score: 2000, cost: 321 },
+  freeze: { cost: 654 }, peek: { cost: 987 }, freeze_bonus_ms: 19000,
+} });
+if (element("bounty-cost").textContent !== "321 pts") process.exit(3);
+if (element("freeze-cost").textContent !== "654 pts") process.exit(4);
+if (element("peek-cost").textContent !== "987 pts") process.exit(5);
+if (element("freeze-bonus").textContent !== "+19") process.exit(6);
+if (element("bounty-multiplier").textContent !== "×2") process.exit(7);
+"""
+    result = subprocess.run(
+        ["node", "-e", harness],
+        env={**os.environ, "PLAYER_SCRIPT": script},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_admin_frontend_is_local_and_exposes_session_and_restart_controls():

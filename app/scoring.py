@@ -24,6 +24,44 @@ FREEZE_BONUS_MS = 30_000
 KINGSLAYER_BONUS = 500
 
 
+def validate_timing_constants() -> None:
+    """Catch invalid organizer edits without tying scoring decay to round length."""
+    if QUESTION_MS <= 0:
+        raise ValueError("QUESTION_MS must be positive")
+    if DECAY_START_MS < 0:
+        raise ValueError("DECAY_START_MS cannot be negative")
+    if DECAY_END_MS < DECAY_START_MS:
+        raise ValueError("DECAY_END_MS cannot precede DECAY_START_MS")
+    if FREEZE_BONUS_MS <= 0:
+        raise ValueError("FREEZE_BONUS_MS must be positive")
+
+
+def public_rules() -> dict[str, Any]:
+    """Display metadata; scoring functions below remain authoritative."""
+    return {
+        "question_duration_ms": QUESTION_MS,
+        "decay_start_ms": DECAY_START_MS,
+        "decay_end_ms": DECAY_END_MS,
+        "freeze_bonus_ms": FREEZE_BONUS_MS,
+        "normal": {
+            "base_score": BASE_SCORE,
+            "wrong_penalty": BASE_PENALTY,
+            "decay_per_sec": BASE_DECAY_PER_SEC,
+            "minimum": BASE_MIN,
+        },
+        "bounty": {
+            "base_score": BOUNTY_SCORE,
+            "wrong_penalty": BOUNTY_PENALTY,
+            "decay_per_sec": BOUNTY_DECAY_PER_SEC,
+            "minimum": BOUNTY_MIN,
+            "cost": BOUNTY_COST,
+        },
+        "freeze": {"cost": FREEZE_COST},
+        "peek": {"cost": PEEK_COST},
+        "kingslayer": {"bonus": KINGSLAYER_BONUS},
+    }
+
+
 @dataclass(frozen=True)
 class ScoreVars:
     correct_base: int
