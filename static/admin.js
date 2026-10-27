@@ -33,7 +33,7 @@
     await Promise.all([refreshAudit(), refreshHealth(), refreshSessionSummaries()]);
     requestAnimationFrame(tickClock);
     setInterval(refreshHealth, 10_000);
-    setInterval(refreshSessionSummaries, 15_000);
+    setInterval(refreshSessionSummaries, 5_000);
   }
 
   function bindControls() {

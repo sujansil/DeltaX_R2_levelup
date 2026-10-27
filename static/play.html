@@ -43,7 +43,7 @@
 
       <div class="topbar-actions">
         <button id="mobile-board-button" class="quiet-button compact-only" type="button">Standings</button>
-        <button id="logout-button" class="quiet-button" type="button">Exit</button>
+        <button id="logout-button" class="quiet-button" type="button">Logout</button>
       </div>
     </header>
 
@@ -231,6 +231,18 @@
       <h2>This device is no longer authenticated.</h2>
       <p>Your session may have expired or been revoked by an administrator.</p>
       <button id="session-login-button" class="primary-action" type="button">RETURN TO LOGIN</button>
+    </section>
+  </div>
+
+  <div id="leave-modal" class="modal" aria-hidden="true">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+      <span class="eyebrow">LEAVE PAGE?</span>
+      <h2 id="leave-title">Leave the competition page?</h2>
+      <p>Your session will remain active unless you log out.</p>
+      <div class="modal-actions">
+        <button id="stay-button" class="quiet-button" type="button">Stay</button>
+        <button id="leave-button" class="secondary-action" type="button">Leave page</button>
+      </div>
     </section>
   </div>
 

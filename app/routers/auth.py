@@ -139,3 +139,20 @@ async def logout(
         row.slot = None
         await session.commit()
     return {"ok": True}
+
+
+@router.post("/heartbeat")
+async def heartbeat(
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Record presence for only the authenticated SID.
+
+    Authentication validity remains governed by ``current_principal``; this
+    endpoint does not alter slots, controller ownership, or gameplay state.
+    """
+    row = await session.get(AuthSession, UUID(principal.session_id))
+    # The dependency has already validated this exact persisted session.
+    row.last_seen_at = datetime.now(timezone.utc)
+    await session.commit()
+    return {"ok": True}

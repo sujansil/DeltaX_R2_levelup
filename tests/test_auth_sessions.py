@@ -373,12 +373,55 @@ async def test_unexpired_jwt_with_expired_database_session_is_rejected(auth_ctx)
 async def test_logout_revokes_the_current_session(auth_ctx):
     async with auth_ctx["maker"]() as session:
         logged_in = await login_team(session)
+        other_login = await login_team(session)
         principal = await principal_for(session, logged_in["access_token"])
         assert await auth_routes.logout(principal, session) == {"ok": True}
         with pytest.raises(HTTPException) as rejected:
             await principal_for(session, logged_in["access_token"])
         assert rejected.value.detail == "Session inactive"
-        assert await active_count(session, auth_ctx["team_id"]) == 0
+        assert (await principal_for(session, other_login["access_token"])).session_id == other_login["session_id"]
+        assert await active_count(session, auth_ctx["team_id"]) == 1
+
+
+async def test_heartbeat_updates_only_current_session(auth_ctx):
+    async with auth_ctx["maker"]() as session:
+        current = await login_team(session)
+        other = await login_team(session)
+        old = datetime.now(timezone.utc) - timedelta(minutes=5)
+        current_row = await session.get(AuthSession, UUID(current["session_id"]))
+        other_row = await session.get(AuthSession, UUID(other["session_id"]))
+        current_row.last_seen_at = old
+        other_row.last_seen_at = old
+        await session.commit()
+
+        principal = await principal_for(session, current["access_token"])
+        current_row.last_seen_at = old
+        await session.commit()
+        assert await auth_routes.heartbeat(principal, session) == {"ok": True}
+
+        await session.refresh(current_row)
+        await session.refresh(other_row)
+        assert current_row.last_seen_at > old.replace(tzinfo=None)
+        assert other_row.last_seen_at == old.replace(tzinfo=None)
+        assert current_row.slot == 1
+        assert other_row.slot == 2
+
+
+@pytest.mark.parametrize("invalid_kind", ["revoked", "expired"])
+async def test_invalid_session_cannot_authenticate_for_heartbeat(auth_ctx, invalid_kind):
+    async with auth_ctx["maker"]() as session:
+        logged_in = await login_team(session)
+        row = await session.get(AuthSession, UUID(logged_in["session_id"]))
+        if invalid_kind == "revoked":
+            row.revoked_at = datetime.now(timezone.utc)
+            row.slot = None
+        else:
+            row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+        with pytest.raises(HTTPException) as rejected:
+            await principal_for(session, logged_in["access_token"])
+        assert rejected.value.status_code == 401
 
 
 async def test_team_scoping_prevents_cross_team_session_revocation(auth_ctx):
@@ -459,11 +502,11 @@ async def test_admin_inventory_includes_metadata_and_controller(auth_ctx, monkey
 @pytest.mark.parametrize(
     ("age_seconds", "revoked", "expired", "expected_status", "expected_valid"),
     [
-        (89, False, False, "active", True),
-        (90, False, False, "active", True),
-        (91, False, False, "stale", True),
-        (180, False, False, "stale", True),
-        (181, False, False, "inactive", True),
+        (14, False, False, "active", True),
+        (15, False, False, "active", True),
+        (16, False, False, "stale", True),
+        (45, False, False, "stale", True),
+        (46, False, False, "inactive", True),
         (1, True, False, "revoked", False),
         (1, False, True, "expired", False),
         (1, True, True, "revoked", False),
@@ -506,7 +549,7 @@ def test_team_session_without_slot_is_structurally_invalid():
 
 @pytest.mark.parametrize(
     ("age_seconds", "expected_status"),
-    [(10, "active"), (120, "stale"), (240, "inactive")],
+    [(10, "active"), (30, "stale"), (60, "inactive")],
 )
 async def test_controller_is_separate_from_activity_status(
     auth_ctx, monkeypatch, age_seconds, expected_status
@@ -577,9 +620,9 @@ async def test_session_counts_and_classification_survive_new_db_session(
         inactive = await login_team(setup, device_label="inactive")
         revoked = await login_team(setup, device_label="revoked")
         now = datetime.now(timezone.utc)
-        (await setup.get(AuthSession, UUID(active["session_id"]))).last_seen_at = now - timedelta(seconds=30)
-        (await setup.get(AuthSession, UUID(stale["session_id"]))).last_seen_at = now - timedelta(seconds=120)
-        (await setup.get(AuthSession, UUID(inactive["session_id"]))).last_seen_at = now - timedelta(seconds=240)
+        (await setup.get(AuthSession, UUID(active["session_id"]))).last_seen_at = now - timedelta(seconds=10)
+        (await setup.get(AuthSession, UUID(stale["session_id"]))).last_seen_at = now - timedelta(seconds=30)
+        (await setup.get(AuthSession, UUID(inactive["session_id"]))).last_seen_at = now - timedelta(seconds=60)
         revoked_row = await setup.get(AuthSession, UUID(revoked["session_id"]))
         revoked_row.last_seen_at = now
         revoked_row.revoked_at = now

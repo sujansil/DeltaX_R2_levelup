@@ -32,6 +32,36 @@ def test_player_frontend_is_local_responsive_and_has_clean_timeout_refresh():
         assert literal not in html
 
 
+def test_player_presence_logout_and_back_protection_are_wired_once():
+    html = (ROOT / "static" / "play.html").read_text()
+    js = (ROOT / "static" / "player.js").read_text()
+
+    assert 'id="logout-button"' in html
+    assert '>Logout</button>' in html
+    assert 'id="leave-modal"' in html
+    assert "Log out from this device?" in js
+    assert 'api("/api/v1/auth/logout", { method: "POST" })' in js
+    assert 'api("/api/v1/auth/heartbeat", { method: "POST" })' in js
+    assert "clearAuth();" in js
+    assert 'window.location.replace("/")' in js
+    assert "if (backProtectionInstalled) return;" in js
+    assert "if (history.state?.levelupPlayerGuard) return;" in js
+    assert "history.pushState({ levelupPlayerGuard: true }" in js
+    assert 'window.addEventListener("popstate", onBackAttempt)' in js
+    assert "bypassBackProtection = true;" in js
+    assert "history.go(-2);" in js
+    assert "if (presenceHeartbeatHandle) return;" in js
+    assert "window.setInterval(sendPresenceHeartbeat, 5_000)" in js
+    assert 'document.addEventListener("visibilitychange", onVisibilityChange)' in js
+    assert "if (!document.hidden) sendPresenceHeartbeat();" in js
+    assert "beforeunload" not in js
+
+
+def test_admin_session_presence_refreshes_every_five_seconds():
+    js = (ROOT / "static" / "admin.js").read_text()
+    assert "setInterval(refreshSessionSummaries, 5_000)" in js
+
+
 def test_player_leaderboard_renders_all_twenty_published_teams():
     script = (ROOT / "static" / "player.js").read_text().replace(
         "  function renderLeaderboard(",

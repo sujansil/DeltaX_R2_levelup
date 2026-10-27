@@ -10,11 +10,15 @@
   let selectedMulti = new Set();
   let currentQuestionId = null;
   let serverClockAnchor = null;
-  let heartbeatHandle = null;
+  let controllerHeartbeatHandle = null;
+  let presenceHeartbeatHandle = null;
   let pollHandle = null;
   let timerFrame = null;
   let timeoutRefreshQueued = false;
   let toastTimer = null;
+  let backProtectionInstalled = false;
+  let bypassBackProtection = false;
+  let leavePromptOpen = false;
 
   const $ = (id) => document.getElementById(id);
 
@@ -23,6 +27,8 @@
 
   async function init() {
     bindControls();
+    installBackProtection();
+    startPresenceHeartbeat();
     setConnection("connecting", "CONNECTING");
 
     const ws = connectWs((message) => {
@@ -56,6 +62,8 @@
       else await claimController();
     });
     $("logout-button").addEventListener("click", logout);
+    $("stay-button").addEventListener("click", cancelLeave);
+    $("leave-button").addEventListener("click", confirmLeave);
     $("session-login-button").addEventListener("click", () => {
       clearAuth();
       window.location.href = "/";
@@ -568,12 +576,12 @@
   }
 
   function syncControllerHeartbeat(state) {
-    if (heartbeatHandle) {
-      clearInterval(heartbeatHandle);
-      heartbeatHandle = null;
+    if (controllerHeartbeatHandle) {
+      clearInterval(controllerHeartbeatHandle);
+      controllerHeartbeatHandle = null;
     }
     if (!state?.i_am_controller) return;
-    heartbeatHandle = window.setInterval(async () => {
+    controllerHeartbeatHandle = window.setInterval(async () => {
       try {
         await api("/api/v1/play/controller/heartbeat", { method: "POST" });
       } catch {
@@ -583,14 +591,84 @@
   }
 
   async function logout() {
-    try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) { /* local cleanup still proceeds */ }
+    if (!window.confirm("Log out from this device?")) return;
+    bypassBackProtection = true;
+    try {
+      await api("/api/v1/auth/logout", { method: "POST" });
+    } catch (err) {
+      if (err.status !== 401 && !window.confirm("The server could not be reached. Log out locally anyway? This session may remain active on the server.")) {
+        bypassBackProtection = false;
+        return;
+      }
+    }
+    stopPresenceHeartbeat();
     clearAuth();
-    window.location.href = "/";
+    window.location.replace("/");
+  }
+
+  function sendPresenceHeartbeat() {
+    if (document.hidden || !auth()) return;
+    api("/api/v1/auth/heartbeat", { method: "POST" }).catch((err) => {
+      if (err.status === 401) showSessionEnded();
+    });
+  }
+
+  function startPresenceHeartbeat() {
+    if (presenceHeartbeatHandle) return;
+    sendPresenceHeartbeat();
+    presenceHeartbeatHandle = window.setInterval(sendPresenceHeartbeat, 5_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  function stopPresenceHeartbeat() {
+    if (presenceHeartbeatHandle) clearInterval(presenceHeartbeatHandle);
+    presenceHeartbeatHandle = null;
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  }
+
+  function onVisibilityChange() {
+    if (!document.hidden) sendPresenceHeartbeat();
+  }
+
+  function installBackProtection() {
+    if (backProtectionInstalled) return;
+    backProtectionInstalled = true;
+    window.addEventListener("popstate", onBackAttempt);
+    // History state survives reloads, so do not add another sentinel after F5.
+    if (history.state?.levelupPlayerGuard) return;
+    history.replaceState({ ...(history.state || {}), levelupPlayerBase: true }, "", location.href);
+    history.pushState({ levelupPlayerGuard: true }, "", location.href);
+  }
+
+  function onBackAttempt() {
+    if (bypassBackProtection) return;
+    // Re-arm immediately. This replaces the forward sentinel instead of growing
+    // history and also protects against a quick accidental double press.
+    history.pushState({ levelupPlayerGuard: true }, "", location.href);
+    leavePromptOpen = true;
+    $("leave-modal").classList.add("open");
+    $("leave-modal").setAttribute("aria-hidden", "false");
+  }
+
+  function cancelLeave() {
+    if (!leavePromptOpen) return;
+    leavePromptOpen = false;
+    $("leave-modal").classList.remove("open");
+    $("leave-modal").setAttribute("aria-hidden", "true");
+  }
+
+  function confirmLeave() {
+    if (!leavePromptOpen) return;
+    leavePromptOpen = false;
+    bypassBackProtection = true;
+    window.removeEventListener("popstate", onBackAttempt);
+    history.go(-2);
   }
 
   function showSessionEnded() {
     clearInterval(pollHandle);
-    clearInterval(heartbeatHandle);
+    clearInterval(controllerHeartbeatHandle);
+    stopPresenceHeartbeat();
     $("session-modal").classList.add("open");
     $("session-modal").setAttribute("aria-hidden", "false");
   }

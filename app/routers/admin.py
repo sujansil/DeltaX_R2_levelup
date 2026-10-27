@@ -271,9 +271,9 @@ def _session_activity(row: AuthSession, now: datetime) -> tuple[str, float, bool
         status = "revoked"
     elif expired:
         status = "expired"
-    elif age_seconds <= 90:
+    elif age_seconds <= 15:
         status = "active"
-    elif age_seconds <= 180:
+    elif age_seconds <= 45:
         status = "stale"
     else:
         status = "inactive"
